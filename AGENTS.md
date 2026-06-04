@@ -7,59 +7,135 @@
 - **Language**: TypeScript 5
 - **UI 组件**: shadcn/ui (基于 Radix UI)
 - **Styling**: Tailwind CSS 4
+- **Database**: Supabase (PostgreSQL) + Drizzle ORM
+- **Auth**: 无登录系统（公开读写）
+
+## 项目概述
+
+战队阵容管理器 — 引导式管理每场比赛、每支战队的 1~5 号位选手阵容。
+
+核心流程：选择比赛 → 选择战队 → 编辑阵容 → 保存 → 继续下一队 / 导出
 
 ## 目录结构
 
 ```
 ├── public/                 # 静态资源
 ├── scripts/                # 构建与启动脚本
-│   ├── build.sh            # 构建脚本
-│   ├── dev.sh              # 开发环境启动脚本
-│   ├── prepare.sh          # 预处理脚本
-│   └── start.sh            # 生产环境启动脚本
 ├── src/
-│   ├── app/                # 页面路由与布局
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── tournaments/          # 比赛 CRUD + 统计
+│   │   │   │   └── [id]/
+│   │   │   │       ├── route.ts      # GET/PUT/DELETE 单场比赛
+│   │   │   │       └── teams/
+│   │   │   │           └── route.ts  # GET/POST 比赛下战队
+│   │   │   ├── teams/[id]/
+│   │   │   │   ├── route.ts          # GET/PUT/DELETE 单支战队
+│   │   │   │   └── players/
+│   │   │   │       └── route.ts      # GET/POST 战队下选手
+│   │   │   ├── players/[id]/
+│   │   │   │   └── route.ts          # PUT/DELETE 单个选手
+│   │   │   └── export/
+│   │   │       └── route.ts          # GET CSV 导出
+│   │   ├── tournament/[id]/page.tsx   # 战队列表页
+│   │   ├── team/[id]/page.tsx         # 阵容编辑页
+│   │   ├── page.tsx                   # 首页（比赛列表）
+│   │   ├── layout.tsx
+│   │   └── globals.css
 │   ├── components/ui/      # Shadcn UI 组件库
-│   ├── hooks/              # 自定义 Hooks
-│   ├── lib/                # 工具库
-│   │   └── utils.ts        # 通用工具函数 (cn)
-│   └── server.ts           # 自定义服务端入口
-├── next.config.ts          # Next.js 配置
-├── package.json            # 项目依赖管理
-└── tsconfig.json           # TypeScript 配置
+│   ├── hooks/
+│   ├── lib/
+│   │   └── utils.ts
+│   ├── storage/database/
+│   │   ├── shared/schema.ts           # Drizzle 表定义 + Zod 校验
+│   │   └── supabase-client.ts         # Supabase 客户端
+│   └── server.ts
+├── next.config.ts
+├── package.json
+└── tsconfig.json
 ```
 
-- 项目文件（如 app 目录、pages 目录、components 等）默认初始化到 `src/` 目录下。
+## 数据库表结构
+
+### tournaments（比赛）
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | serial PK | 主键 |
+| name | varchar(255) | 比赛名 |
+| league_id | varchar(128) | 联赛标识 |
+| created_at | timestamp | 创建时间 |
+| updated_at | timestamp | 更新时间 |
+
+### teams（战队）
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | serial PK | 主键 |
+| tournament_id | integer FK | 所属比赛 (cascade delete) |
+| name | varchar(255) | 战队名 |
+| short_name | varchar(64) | 简称 |
+| team_id | varchar(128) | 外部标识 |
+| status | varchar(32) | 完整/缺失/重复/待确认 |
+| created_at | timestamp | 创建时间 |
+| updated_at | timestamp | 更新时间 |
+
+### players（选手）
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | serial PK | 主键 |
+| team_id | integer FK | 所属战队 (cascade delete) |
+| nickname | varchar(128) | 昵称 |
+| steamid64 | varchar(32) | Steam 64位ID |
+| position | integer | 1~5号位 |
+| created_at | timestamp | 创建时间 |
+| updated_at | timestamp | 更新时间 |
+
+## API 路由总结
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| GET | /api/tournaments | 获取所有比赛（含战队数和阵容完成度） |
+| POST | /api/tournaments | 创建比赛 |
+| GET | /api/tournaments/[id] | 获取单场比赛 |
+| PUT | /api/tournaments/[id] | 更新比赛 |
+| DELETE | /api/tournaments/[id] | 删除比赛 |
+| GET | /api/tournaments/[id]/teams | 获取比赛下所有战队（含选手摘要） |
+| POST | /api/tournaments/[id]/teams | 在比赛下创建战队 |
+| GET | /api/teams/[id] | 获取单支战队 |
+| PUT | /api/teams/[id] | 更新战队 |
+| DELETE | /api/teams/[id] | 删除战队 |
+| GET | /api/teams/[id]/players | 获取战队下所有选手 |
+| POST | /api/teams/[id]/players | 为战队添加选手 |
+| PUT | /api/players/[id] | 更新选手 |
+| DELETE | /api/players/[id] | 删除选手 |
+| GET | /api/export?scope=all\|tournament&id=N | 导出 CSV |
 
 ## 包管理规范
 
-**仅允许使用 pnpm** 作为包管理器，**严禁使用 npm 或 yarn**。
-**常用命令**：
-- 安装依赖：`pnpm add <package>`
-- 安装开发依赖：`pnpm add -D <package>`
-- 安装所有依赖：`pnpm install`
-- 移除依赖：`pnpm remove <package>`
+- **仅允许使用 pnpm**，严禁使用 npm 或 yarn
 
 ## 开发规范
 
 ### 编码规范
-
-- 默认按 TypeScript `strict` 心智写代码；优先复用当前作用域已声明的变量、函数、类型和导入，禁止引用未声明标识符或拼错变量名。
-- 禁止隐式 `any` 和 `as any`；函数参数、返回值、解构项、事件对象、`catch` 错误在使用前应有明确类型或先完成类型收窄，并清理未使用的变量和导入。
-
-### next.config 配置规范
-
-- 配置的路径不要写死绝对路径，必须使用 path.resolve(__dirname, ...)、import.meta.dirname 或 process.cwd() 动态拼接。
+- 默认按 TypeScript `strict` 心智写代码
+- 禁止隐式 `any` 和 `as any`
+- Supabase SDK 必须检查 `{ data, error }` 并 throw
 
 ### Hydration 问题防范
+- 所有交互页面均使用 `"use client"`
+- 动态数据必须通过 useEffect + useState 在客户端渲染
 
-1. 严禁在 JSX 渲染逻辑中直接使用 typeof window、Date.now()、Math.random() 等动态数据。**必须使用 'use client' 并配合 useEffect + useState 确保动态内容仅在客户端挂载后渲染**；同时严禁非法 HTML 嵌套（如 <p> 嵌套 <div>）。
-2. **禁止使用 head 标签**，优先使用 metadata，详见文档：https://nextjs.org/docs/app/api-reference/functions/generate-metadata
-   1. 三方 CSS、字体等资源可在 `globals.css` 中顶部通过 `@import` 引入或使用 next/font
-   2. preload, preconnect, dns-prefetch 通过 ReactDOM 的 preload、preconnect、dns-prefetch 方法引入
-   3. json-ld 可阅读 https://nextjs.org/docs/app/guides/json-ld
+## 关键业务规则（保存校验）
 
-## UI 设计与组件规范 (UI & Styling Standards)
+保存阵容时校验：
+1. 5 个位置是否都有选手
+2. steamid64 是否为 17 位数字
+3. 同一位置是否有重复选手
+4. STRATZ 链接基于 steamid64 自动生成
 
-- 模板默认预装核心组件库 `shadcn/ui`，位于`src/components/ui/`目录下
-- Next.js 项目**必须默认**采用 shadcn/ui 组件、风格和规范，**除非用户指定用其他的组件和规范。**
+## 页面路由
+
+| 路径 | 页面 | 功能 |
+|------|------|------|
+| / | 首页 | 比赛卡片列表 + 创建/删除比赛 |
+| /tournament/[id] | 战队列表 | 比赛下战队卡片 + 创建/删除战队 |
+| /team/[id] | 阵容编辑 | 选手卡片网格 + 编辑/添加/删除 + 保存校验 + 成功引导 |

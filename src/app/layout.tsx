@@ -4,11 +4,10 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: '新应用 | 扣子编程',
-    template: '%s | 扣子编程',
+    default: '战队阵容管理器',
+    template: '%s | 战队阵容管理器',
   },
-  description:
-    '扣子编程是一款一站式云端 Vibe Coding 开发平台。通过对话轻松构建智能体、工作流和网站，实现从创意到上线的无缝衔接。',
+  description: '按步骤管理每场比赛、每支战队的 1~5 号位选手阵容。',
   keywords: [
     '扣子编程',
     'Coze Code',
