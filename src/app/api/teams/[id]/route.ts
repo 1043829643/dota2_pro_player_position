@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseClient } from "@/storage/database/supabase-client";
-
-const client = getSupabaseClient();
+import {
+  deleteTeamById,
+  getTeamById,
+  updateTeamById,
+} from "@/lib/local-store";
 
 // GET /api/teams/[id] - 获取单支战队
 export async function GET(
@@ -9,15 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { data: team, error } = await client
-    .from("teams")
-    .select("*")
-    .eq("id", Number(id))
-    .maybeSingle();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
+  const team = getTeamById(Number(id));
   if (!team) {
     return NextResponse.json({ error: "战队不存在" }, { status: 404 });
   }
@@ -31,16 +25,14 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await req.json();
-
-  const { data, error } = await client
-    .from("teams")
-    .update({ ...body, updated_at: new Date().toISOString() })
-    .eq("id", Number(id))
-    .select()
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const data = updateTeamById(Number(id), {
+    name: body.name,
+    short_name: body.short_name,
+    team_id: body.team_id,
+    status: body.status,
+  });
+  if (!data) {
+    return NextResponse.json({ error: "战队不存在" }, { status: 404 });
   }
   return NextResponse.json(data);
 }
@@ -51,13 +43,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { error } = await client
-    .from("teams")
-    .delete()
-    .eq("id", Number(id));
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const deleted = deleteTeamById(Number(id));
+  if (!deleted) {
+    return NextResponse.json({ error: "战队不存在" }, { status: 404 });
   }
   return NextResponse.json({ success: true });
 }

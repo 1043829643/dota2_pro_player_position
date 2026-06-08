@@ -53,7 +53,13 @@ interface TeamDetail {
   tournament_name?: string;
 }
 
+interface TournamentTeamSummary {
+  id: number;
+  status: string;
+}
+
 const POSITIONS = [1, 2, 3, 4, 5];
+const STEAMID64_BASE = BigInt("76561197960265728");
 const POSITION_LABELS: Record<number, string> = {
   1: "1号位 (Carry)",
   2: "2号位 (Mid)",
@@ -114,13 +120,20 @@ export default function TeamPage() {
     nickname: string,
     steamid64: string,
     position: number,
-    excludePlayerId?: number
+    excludePlayerId?: number,
+    allowPositionConflict = false
   ): string | null => {
     if (!nickname.trim()) return "昵称不能为空";
+
+    if (!POSITIONS.includes(position)) {
+      return "请选择 1~5 号位";
+    }
 
     if (steamid64 && !/^\d{17}$/.test(steamid64.trim())) {
       return `steamid64 格式错误（需为 17 位数字）`;
     }
+
+    if (allowPositionConflict) return null;
 
     const duplicate = players.find(
       (p) =>
@@ -147,13 +160,34 @@ export default function TeamPage() {
   const handleEdit = async () => {
     if (!editingPlayer) return;
     const pos = Number(editPosition);
-    const err = validatePlayer(editNickname, editSteamid64, pos, editingPlayer.id);
+    const err = validatePlayer(editNickname, editSteamid64, pos, editingPlayer.id, true);
     if (err) {
       toast.error(err);
       return;
     }
 
+    const occupiedPlayer = players.find(
+      (p) => p.position === pos && p.id !== editingPlayer.id
+    );
+    if (occupiedPlayer) {
+      const shouldSwap = confirm(
+        `当前 ${pos}号位 已由「${occupiedPlayer.nickname}」占用，是否与「${editingPlayer.nickname}」交换位置？`
+      );
+      if (!shouldSwap) return;
+    }
+
     try {
+      if (occupiedPlayer) {
+        const swapRes = await fetch(`/api/players/${occupiedPlayer.id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            position: editingPlayer.position,
+          }),
+        });
+        if (!swapRes.ok) throw new Error("交换位置失败");
+      }
+
       const res = await fetch(`/api/players/${editingPlayer.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -164,8 +198,9 @@ export default function TeamPage() {
         }),
       });
       if (!res.ok) throw new Error("更新失败");
-      toast.success("选手已更新");
+      toast.success(occupiedPlayer ? "选手位置已交换" : "选手已更新");
       setEditOpen(false);
+      setSavedSuccess(false);
       await fetchData();
     } catch {
       toast.error("更新选手失败");
@@ -213,6 +248,7 @@ export default function TeamPage() {
       if (!res.ok) throw new Error("添加失败");
       toast.success("选手已添加");
       setAddOpen(false);
+      setSavedSuccess(false);
       await fetchData();
     } catch {
       toast.error("添加选手失败");
@@ -226,6 +262,7 @@ export default function TeamPage() {
       const res = await fetch(`/api/players/${player.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       toast.success("选手已移除");
+      setSavedSuccess(false);
       await fetchData();
     } catch {
       toast.error("移除选手失败");
@@ -306,16 +343,16 @@ export default function TeamPage() {
 
   // 算出当前比赛有多少支待处理战队
   const [pendingTeamsCount, setPendingTeamsCount] = useState(0);
-  const [tournamentTeams, setTournamentTeams] = useState<any[]>([]);
+  const [tournamentTeams, setTournamentTeams] = useState<TournamentTeamSummary[]>([]);
 
   useEffect(() => {
     if (team) {
       fetch(`/api/tournaments/${team.tournament_id}/teams`)
         .then((r) => r.json())
-        .then((data) => {
+        .then((data: TournamentTeamSummary[]) => {
           setTournamentTeams(data);
           const pending = data.filter(
-            (t: any) =>
+            (t) =>
               t.id !== Number(teamId) && (t.status === "缺失" || t.status === "待确认" || t.status === "重复")
           );
           setPendingTeamsCount(pending.length);
@@ -326,7 +363,10 @@ export default function TeamPage() {
 
   const getStratzLink = (steamid64: string | null) => {
     if (!steamid64) return null;
-    return `https://stratz.com/player/${steamid64}`;
+    if (!/^\d{17}$/.test(steamid64)) return null;
+    const accountId = BigInt(steamid64) - STEAMID64_BASE;
+    if (accountId <= BigInt(0)) return null;
+    return `https://stratz.com/players/${accountId.toString()}`;
   };
 
   // 根据位置获取颜色
@@ -527,7 +567,7 @@ export default function TeamPage() {
                     className="bg-indigo-600 hover:bg-indigo-700 gap-2"
                     onClick={() => {
                       const next = tournamentTeams.find(
-                        (t: any) =>
+                        (t) =>
                           t.id !== Number(teamId) &&
                           (t.status === "缺失" || t.status === "待确认" || t.status === "重复")
                       );

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseClient } from "@/storage/database/supabase-client";
-
-const client = getSupabaseClient();
+import { deletePlayerById, updatePlayerById } from "@/lib/local-store";
 
 // PUT /api/players/[id] - 更新选手
 export async function PUT(
@@ -10,16 +8,23 @@ export async function PUT(
 ) {
   const { id } = await params;
   const body = await req.json();
-
-  const { data, error } = await client
-    .from("players")
-    .update({ ...body, updated_at: new Date().toISOString() })
-    .eq("id", Number(id))
-    .select()
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const validationError = validatePlayerPayload(body);
+  if (validationError) {
+    return NextResponse.json({ error: validationError }, { status: 400 });
+  }
+  const data = updatePlayerById(Number(id), {
+    nickname:
+      body.nickname !== undefined ? String(body.nickname).trim() : undefined,
+    steamid64:
+      body.steamid64 !== undefined
+        ? body.steamid64
+          ? String(body.steamid64)
+          : null
+        : undefined,
+    position: body.position !== undefined ? Number(body.position) : undefined,
+  });
+  if (!data) {
+    return NextResponse.json({ error: "选手不存在" }, { status: 404 });
   }
   return NextResponse.json(data);
 }
@@ -30,13 +35,34 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { error } = await client
-    .from("players")
-    .delete()
-    .eq("id", Number(id));
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const deleted = deletePlayerById(Number(id));
+  if (!deleted) {
+    return NextResponse.json({ error: "选手不存在" }, { status: 404 });
   }
   return NextResponse.json({ success: true });
+}
+
+function validatePlayerPayload(body: Record<string, unknown>): string | null {
+  if (
+    typeof body.nickname === "string" &&
+    body.nickname.trim().length === 0
+  ) {
+    return "昵称不能为空";
+  }
+
+  if (
+    body.steamid64 &&
+    (typeof body.steamid64 !== "string" || !/^\d{17}$/.test(body.steamid64))
+  ) {
+    return "steamid64 格式错误（需为 17 位数字）";
+  }
+
+  if (
+    body.position !== undefined &&
+    (![1, 2, 3, 4, 5].includes(Number(body.position)))
+  ) {
+    return "位置必须是 1~5 号位";
+  }
+
+  return null;
 }

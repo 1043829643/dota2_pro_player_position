@@ -10,7 +10,8 @@
     "lint:build": "eslint . --quiet",
     "start": "bash ./scripts/start.sh",
     "ts-check": "tsc -p tsconfig.json",
-    "validate": "pnpm run --parallel '/^(ts-check|lint:build)$/'"
+    "validate": "pnpm run --parallel '/^(ts-check|lint:build)$/'",
+    "import:lineups": "tsx scripts/import-lineup-csv.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.958.0",

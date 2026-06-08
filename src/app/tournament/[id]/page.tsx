@@ -26,6 +26,7 @@ import {
   AlertTriangle,
   XCircle,
   HelpCircle,
+  type LucideIcon,
 } from "lucide-react";
 
 interface Player {
@@ -47,7 +48,7 @@ interface Team {
   players: Player[];
 }
 
-const statusConfig: Record<string, { label: string; icon: any; color: string }> = {
+const statusConfig: Record<string, { label: string; icon: LucideIcon; color: string }> = {
   "完整": { label: "完整", icon: CheckCircle2, color: "text-green-600 bg-green-50 border-green-200" },
   "缺失": { label: "缺失", icon: AlertTriangle, color: "text-amber-600 bg-amber-50 border-amber-200" },
   "重复": { label: "重复", icon: XCircle, color: "text-red-600 bg-red-50 border-red-200" },

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseClient } from "@/storage/database/supabase-client";
-
-const client = getSupabaseClient();
+import {
+  addPlayerToTeam,
+  findPlayerByTeamAndPosition,
+  listPlayersByTeamId,
+} from "@/lib/local-store";
 
 // GET /api/teams/[id]/players - 获取战队所有选手
 export async function GET(
@@ -9,16 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const { data, error } = await client
-    .from("players")
-    .select("*")
-    .eq("team_id", Number(id))
-    .order("position");
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-  return NextResponse.json(data ?? []);
+  return NextResponse.json(listPlayersByTeamId(Number(id)));
 }
 
 // POST /api/teams/[id]/players - 为战队添加选手
@@ -28,15 +21,42 @@ export async function POST(
 ) {
   const { id } = await params;
   const body = await req.json();
-
-  const { data, error } = await client
-    .from("players")
-    .insert({ ...body, team_id: Number(id) })
-    .select()
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  const validationError = validateNewPlayerPayload(body);
+  if (validationError) {
+    return NextResponse.json({ error: validationError }, { status: 400 });
   }
+
+  const position = Number(body.position);
+  const occupied = findPlayerByTeamAndPosition(Number(id), position);
+  if (occupied) {
+    return NextResponse.json(
+      { error: `${position}号位 已有选手「${occupied.nickname}」` },
+      { status: 400 }
+    );
+  }
+  const data = addPlayerToTeam(Number(id), {
+    nickname: String(body.nickname).trim(),
+    steamid64: body.steamid64 ? String(body.steamid64) : null,
+    position,
+  });
   return NextResponse.json(data, { status: 201 });
+}
+
+function validateNewPlayerPayload(body: Record<string, unknown>): string | null {
+  if (typeof body.nickname !== "string" || body.nickname.trim().length === 0) {
+    return "昵称不能为空";
+  }
+
+  if (
+    body.steamid64 &&
+    (typeof body.steamid64 !== "string" || !/^\d{17}$/.test(body.steamid64))
+  ) {
+    return "steamid64 格式错误（需为 17 位数字）";
+  }
+
+  if (![1, 2, 3, 4, 5].includes(Number(body.position))) {
+    return "位置必须是 1~5 号位";
+  }
+
+  return null;
 }

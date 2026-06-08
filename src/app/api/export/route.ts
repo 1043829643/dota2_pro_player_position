@@ -1,89 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseClient } from "@/storage/database/supabase-client";
-
-const client = getSupabaseClient();
+import { exportRowsWithTier } from "@/lib/local-store";
+const STEAMID64_BASE = BigInt("76561197960265728");
 
 // GET /api/export?scope=tournament&id=1 或 /api/export?scope=all
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const scope = searchParams.get("scope") ?? "all";
-  const tournamentId = searchParams.get("id");
-
-  let tournaments: any[] = [];
-
-  if (scope === "tournament" && tournamentId) {
-    const { data, error } = await client
-      .from("tournaments")
-      .select("*")
-      .eq("id", Number(tournamentId));
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    tournaments = data ?? [];
-  } else {
-    const { data, error } = await client
-      .from("tournaments")
-      .select("*")
-      .order("name");
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    tournaments = data ?? [];
-  }
+  const tier = searchParams.get("tier") ?? "all";
+  const tournamentIdRaw = searchParams.get("id");
+  const tournamentId =
+    scope === "tournament" && tournamentIdRaw ? Number(tournamentIdRaw) : undefined;
 
   // 构建 CSV 行
   const rows: string[] = [
     "比赛名,league_id,战队名,team_id,选手昵称,位置,steamid64,STRATZ链接",
   ];
-
-  for (const t of tournaments) {
-    const { data: teams } = await client
-      .from("teams")
-      .select("*")
-      .eq("tournament_id", t.id)
-      .order("name");
-
-    for (const team of teams ?? []) {
-      const { data: players } = await client
-        .from("players")
-        .select("*")
-        .eq("team_id", team.id)
-        .order("position");
-
-      if (players && players.length > 0) {
-        for (const p of players) {
-          const stratzLink = p.steamid64
-            ? `https://stratz.com/player/${p.steamid64}`
-            : "";
-          rows.push(
-            [
-              escapeCsv(t.name),
-              escapeCsv(t.league_id),
-              escapeCsv(team.name),
-              escapeCsv(team.team_id ?? ""),
-              escapeCsv(p.nickname),
-              `${p.position}号位`,
-              p.steamid64 ?? "",
-              stratzLink,
-            ].join(",")
-          );
-        }
-      } else {
-        // 战队无选手，仍输出一行
-        rows.push(
-          [
-            escapeCsv(t.name),
-            escapeCsv(t.league_id),
-            escapeCsv(team.name),
-            escapeCsv(team.team_id ?? ""),
-            "",
-            "",
-            "",
-            "",
-          ].join(",")
-        );
-      }
-    }
+  const exportData = exportRowsWithTier(
+    scope === "tournament" ? "tournament" : "all",
+    tournamentId,
+    tier === "top" ? "top" : tier === "qualifier" ? "qualifier" : "all"
+  );
+  for (const row of exportData) {
+    const stratzLink = row.player ? getStratzLink(row.player.steamid64) : "";
+    rows.push(
+      [
+        escapeCsv(row.tournament.name),
+        escapeCsv(row.tournament.league_id),
+        escapeCsv(row.team.name),
+        escapeCsv(row.team.team_id ?? ""),
+        escapeCsv(row.player?.nickname ?? ""),
+        row.player ? `${row.player.position}号位` : "",
+        row.player?.steamid64 ?? "",
+        stratzLink,
+      ].join(",")
+    );
   }
 
   const csv = rows.join("\n");
@@ -100,4 +50,11 @@ function escapeCsv(value: string): string {
     return `"${value.replace(/"/g, '""')}"`;
   }
   return value;
+}
+
+function getStratzLink(steamid64: string | null): string {
+  if (!steamid64 || !/^\d{17}$/.test(steamid64)) return "";
+  const accountId = BigInt(steamid64) - STEAMID64_BASE;
+  if (accountId <= BigInt(0)) return "";
+  return `https://stratz.com/players/${accountId.toString()}`;
 }

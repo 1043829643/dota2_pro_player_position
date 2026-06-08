@@ -1,6 +1,6 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { execSync } from 'child_process';
-import { getReportBuffer, createWrappedFetch } from 'coze-coding-dev-sdk';
+import dotenv from 'dotenv';
 
 let envLoaded = false;
 
@@ -16,7 +16,7 @@ function loadEnv(): void {
 
   try {
     try {
-      require('dotenv').config();
+      dotenv.config();
       if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
         envLoaded = true;
         return;
@@ -39,11 +39,25 @@ except Exception as e:
     print(f"# Error: {e}", file=sys.stderr)
 `;
 
-    const output = execSync(`python3 -c '${pythonCode.replace(/'/g, "'\"'\"'")}'`, {
-      encoding: 'utf-8',
-      timeout: 10000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    let output = '';
+    let commandWorked = false;
+    const escaped = pythonCode.replace(/'/g, "'\"'\"'");
+    for (const cmd of [`python -c '${escaped}'`, `python3 -c '${escaped}'`]) {
+      try {
+        output = execSync(cmd, {
+          encoding: 'utf-8',
+          timeout: 10000,
+          stdio: ['pipe', 'pipe', 'pipe'],
+        });
+        commandWorked = true;
+        break;
+      } catch {
+        // try next python command candidate
+      }
+    }
+    if (!commandWorked) {
+      return;
+    }
 
     const lines = output.trim().split('\n');
     for (const line of lines) {
@@ -100,17 +114,11 @@ function getSupabaseClient(token?: string): SupabaseClient {
     key = serviceRoleKey ?? anonKey;
   }
 
-  const globalOptions: Record<string, any> = {};
+  const globalOptions: {
+    headers?: Record<string, string>;
+  } = {};
   if (token) {
     globalOptions.headers = { Authorization: `Bearer ${token}` };
-  }
-  try {
-    const buffer = getReportBuffer();
-    if (buffer) {
-      globalOptions.fetch = createWrappedFetch(buffer, 'supabase');
-    }
-  } catch {
-    // Silent — reporting setup failure should not block client creation
   }
 
   return createClient(url, key, {

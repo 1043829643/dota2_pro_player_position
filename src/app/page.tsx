@@ -15,6 +15,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Toaster, toast } from "sonner";
 import {
   Trophy,
@@ -23,12 +30,15 @@ import {
   Users,
   Calendar,
   Hash,
+  UserCog,
+  Download,
 } from "lucide-react";
 
 interface Tournament {
   id: number;
   name: string;
   league_id: string;
+  event_tier: "顶级赛事" | "预选赛" | "其他";
   teams_count: number;
   completion: string;
   updated_at: string;
@@ -42,6 +52,10 @@ export default function HomePage() {
   const [newName, setNewName] = useState("");
   const [newLeagueId, setNewLeagueId] = useState("");
   const [creating, setCreating] = useState(false);
+  const [tierFilter, setTierFilter] = useState<"全部" | "顶级赛事" | "预选赛">("全部");
+  const [openExport, setOpenExport] = useState(false);
+  const [exportTier, setExportTier] = useState<"all" | "top" | "qualifier">("all");
+  const [exporting, setExporting] = useState(false);
 
   const fetchTournaments = useCallback(async () => {
     try {
@@ -81,8 +95,8 @@ export default function HomePage() {
       setNewName("");
       setNewLeagueId("");
       await fetchTournaments();
-    } catch (e: any) {
-      toast.error(e.message || "创建失败");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "创建失败");
     } finally {
       setCreating(false);
     }
@@ -115,6 +129,83 @@ export default function HomePage() {
     return <Badge variant="destructive">待填充</Badge>;
   };
 
+  const getTierBadge = (tier: Tournament["event_tier"]) => {
+    if (tier === "顶级赛事") {
+      return <Badge className="bg-purple-600 text-white">顶级赛事</Badge>;
+    }
+    if (tier === "预选赛") {
+      return <Badge className="bg-blue-600 text-white">预选赛</Badge>;
+    }
+    return <Badge variant="secondary">其他</Badge>;
+  };
+
+  const filteredTournaments = tournaments.filter((t) => {
+    if (tierFilter === "全部") return true;
+    return t.event_tier === tierFilter;
+  });
+
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams({
+        scope: "all",
+        tier: exportTier,
+      });
+      const res = await fetch(`/api/export?${params.toString()}`);
+      if (!res.ok) throw new Error("导出失败");
+      const blob = await res.blob();
+      const tierName =
+        exportTier === "top" ? "top" : exportTier === "qualifier" ? "qualifier" : "all";
+      const fileName = `lineup-export-${tierName}-${Date.now()}.csv`;
+
+      type SavePickerWindow = Window & {
+        showSaveFilePicker?: (options: {
+          suggestedName?: string;
+          types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+        }) => Promise<{
+          createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }>;
+        }>;
+      };
+
+      const pickerWindow = window as SavePickerWindow;
+      if (pickerWindow.showSaveFilePicker) {
+        const handle = await pickerWindow.showSaveFilePicker({
+          suggestedName: fileName,
+          types: [
+            {
+              description: "CSV 文件",
+              accept: { "text/csv": [".csv"] },
+            },
+          ],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } else {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      toast.success("导出成功");
+      setOpenExport(false);
+    } catch (e) {
+      const err = e as Error;
+      if (err?.name === "AbortError") {
+        toast.message("已取消导出");
+      } else {
+        toast.error("导出失败");
+      }
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <Toaster position="top-right" richColors />
@@ -130,32 +221,52 @@ export default function HomePage() {
               <p className="text-sm text-slate-500 mt-0.5">管理比赛、战队与 1~5 号位选手阵容</p>
             </div>
           </div>
-          <Button onClick={() => setOpen(true)} className="gap-2">
-            <Plus className="w-4 h-4" />
-            新建比赛
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => router.push("/players")} className="gap-2">
+              <UserCog className="w-4 h-4" />
+              选手管理
+            </Button>
+            <Button variant="outline" onClick={() => setOpenExport(true)} className="gap-2">
+              <Download className="w-4 h-4" />
+              导出
+            </Button>
+            <Button onClick={() => setOpen(true)} className="gap-2">
+              <Plus className="w-4 h-4" />
+              新建比赛
+            </Button>
+          </div>
         </div>
 
         {/* 比赛列表 */}
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-sm text-slate-500">筛选：</span>
+          {(["全部", "顶级赛事", "预选赛"] as const).map((tier) => (
+            <Button
+              key={tier}
+              variant={tierFilter === tier ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTierFilter(tier)}
+            >
+              {tier}
+            </Button>
+          ))}
+        </div>
+
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {[1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-44 rounded-xl" />
             ))}
           </div>
-        ) : tournaments.length === 0 ? (
+        ) : filteredTournaments.length === 0 ? (
           <div className="text-center py-24">
             <Trophy className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold text-slate-600 mb-2">还没有比赛</h2>
-            <p className="text-slate-400 mb-6">点击右上角「新建比赛」开始管理阵容</p>
-            <Button variant="outline" onClick={() => setOpen(true)} className="gap-2">
-              <Plus className="w-4 h-4" />
-              创建第一个比赛
-            </Button>
+            <h2 className="text-xl font-semibold text-slate-600 mb-2">当前筛选无比赛</h2>
+            <p className="text-slate-400 mb-6">切换筛选项或新建比赛</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {tournaments.map((t) => (
+            {filteredTournaments.map((t) => (
               <Card
                 key={t.id}
                 className="cursor-pointer hover:shadow-lg transition-all duration-200 border border-slate-200 hover:border-indigo-300 group"
@@ -163,9 +274,12 @@ export default function HomePage() {
               >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
-                    <CardTitle className="text-lg text-slate-800 group-hover:text-indigo-600 transition-colors">
-                      {t.name}
-                    </CardTitle>
+                    <div className="space-y-2">
+                      <CardTitle className="text-lg text-slate-800 group-hover:text-indigo-600 transition-colors">
+                        {t.name}
+                      </CardTitle>
+                      {getTierBadge(t.event_tier)}
+                    </div>
                     <button
                       onClick={(e) => handleDelete(t.id, e)}
                       className="text-slate-300 hover:text-red-500 transition-colors text-sm opacity-0 group-hover:opacity-100"
@@ -236,6 +350,44 @@ export default function HomePage() {
             </Button>
             <Button onClick={handleCreate} disabled={creating}>
               {creating ? "创建中..." : "创建"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* 导出弹窗 */}
+      <Dialog open={openExport} onOpenChange={setOpenExport}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>导出阵容数据</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label>导出范围</Label>
+              <Select
+                value={exportTier}
+                onValueChange={(v: "all" | "top" | "qualifier") => setExportTier(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择导出范围" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部赛事</SelectItem>
+                  <SelectItem value="top">仅顶级赛事</SelectItem>
+                  <SelectItem value="qualifier">仅预选赛</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-xs text-slate-500">
+              导出时将优先弹出本地保存位置选择器；若浏览器不支持则自动下载到默认下载目录。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenExport(false)}>
+              取消
+            </Button>
+            <Button onClick={handleExport} disabled={exporting}>
+              {exporting ? "导出中..." : "开始导出"}
             </Button>
           </DialogFooter>
         </DialogContent>
