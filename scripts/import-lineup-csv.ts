@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import path from "path";
-import { getSupabaseClient } from "../src/storage/database/supabase-client";
+import { getClient } from "../src/storage/database/supabase-client";
 
 type CsvRow = Record<string, string>;
 
@@ -17,7 +17,7 @@ interface TeamRecord {
   team_id: string | null;
 }
 
-const client = getSupabaseClient();
+const client = getClient();
 
 async function main() {
   const inputPath = process.argv[2];

@@ -1,38 +1,76 @@
 import { NextRequest, NextResponse } from "next/server";
-<<<<<<< HEAD
-import {
-  createTeamInTournament,
-  listTeamsByTournamentId,
-} from "@/lib/local-store";
-=======
 import { getClient } from "@/storage/database/supabase-client";
->>>>>>> aa4d265 (fix: 修复部署构建时 COZE_SUPABASE_URL 未设置导致 build 失败的问题)
 
-// GET /api/tournaments/[id]/teams - 获取比赛下所有战队及阵容摘要
+export const dynamic = "force-dynamic";
+
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const client = getClient();
-  const { id } = await params;
-  return NextResponse.json(listTeamsByTournamentId(Number(id)));
+  try {
+    const client = getClient();
+    const { id } = await params;
+    const tournamentId = parseInt(id);
+
+    const { data: teamList, error } = await client
+      .from("teams")
+      .select("*")
+      .eq("tournament_id", tournamentId)
+      .order("name");
+
+    if (error) throw error;
+
+    const teamsWithPlayers = await Promise.all(
+      (teamList || []).map(async (team) => {
+        const { data: playerList } = await client
+          .from("players")
+          .select("*")
+          .eq("team_id", team.id)
+          .order("position");
+
+        const summary = (playerList || [])
+          .map((p) => `${p.nickname}(${p.position}号位)`)
+          .join(", ");
+
+        return { ...team, players: playerList || [], summary };
+      })
+    );
+
+    return NextResponse.json(teamsWithPlayers);
+  } catch (e: unknown) {
+    return NextResponse.json(
+      { error: (e as Error).message },
+      { status: 500 }
+    );
+  }
 }
 
-// POST /api/tournaments/[id]/teams - 在比赛下创建战队
 export async function POST(
-  req: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const client = getClient();
-  const { id } = await params;
-  const body = await req.json();
-  if (!body.name || !String(body.name).trim()) {
-    return NextResponse.json({ error: "战队名不能为空" }, { status: 400 });
+  try {
+    const client = getClient();
+    const { id } = await params;
+    const body = await request.json();
+    const { data, error } = await client
+      .from("teams")
+      .insert({
+        tournament_id: parseInt(id),
+        name: body.name,
+        short_name: body.short_name,
+        team_id: body.team_id,
+        status: "缺失",
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return NextResponse.json(data, { status: 201 });
+  } catch (e: unknown) {
+    return NextResponse.json(
+      { error: (e as Error).message },
+      { status: 500 }
+    );
   }
-  const data = createTeamInTournament(Number(id), {
-    name: String(body.name).trim(),
-    short_name: body.short_name ? String(body.short_name) : null,
-    team_id: body.team_id ? String(body.team_id) : null,
-  });
-  return NextResponse.json(data, { status: 201 });
 }

@@ -1,80 +1,78 @@
 import { NextRequest, NextResponse } from "next/server";
-<<<<<<< HEAD
-import {
-  createTournament,
-  listTournamentSummaries,
-} from "@/lib/local-store";
-
-// GET /api/tournaments - 获取所有比赛列表
-export async function GET() {
-  return NextResponse.json(listTournamentSummaries());
-=======
 import { getClient } from "@/storage/database/supabase-client";
+import { tournaments, teams, players } from "@/storage/database/shared/schema";
 
-// GET /api/tournaments - 获取所有比赛列表
+export const dynamic = "force-dynamic";
+
 export async function GET() {
-  const client = getClient();
-  // 先获取所有比赛
-  const { data: tournamentsData, error: tourError } = await client
-    .from("tournaments")
-    .select("id, name, league_id, created_at, updated_at")
-    .order("updated_at", { ascending: false });
+  try {
+    const client = getClient();
+    const { data: tournamentList, error } = await client
+      .from("tournaments")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  if (tourError) {
-    return NextResponse.json({ error: tourError.message }, { status: 500 });
-  }
+    if (error) throw error;
 
-  // 为每场比赛统计战队数和选手数
-  const result = await Promise.all(
-    (tournamentsData ?? []).map(async (t) => {
-      const { data: teamsData } = await client
-        .from("teams")
-        .select("id")
-        .eq("tournament_id", t.id);
+    const summaries = await Promise.all(
+      (tournamentList || []).map(async (t) => {
+        const { data: teamList } = await client
+          .from("teams")
+          .select("id")
+          .eq("tournament_id", t.id);
 
-      const teamIds = (teamsData ?? []).map((x) => x.id);
-      const teamsCount = teamIds.length;
+        const teamIds = (teamList || []).map((tm) => tm.id);
+        let filledPositions = 0;
 
-      let completion = "0/0";
-      if (teamsCount > 0) {
-        const { count } = await client
-          .from("players")
-          .select("*", { count: "exact", head: true })
-          .in("team_id", teamIds);
+        if (teamIds.length > 0) {
+          const { data: playerList } = await client
+            .from("players")
+            .select("team_id, position")
+            .in("team_id", teamIds);
+          const uniquePositions = new Set(
+            (playerList || []).map((p) => `${p.team_id}-${p.position}`)
+          );
+          filledPositions = uniquePositions.size;
+        }
 
-        const totalSlots = teamsCount * 5;
-        const filledSlots = count ?? 0;
-        completion = `${Math.min(filledSlots, totalSlots)}/${totalSlots}`;
-      }
+        const totalPositions = (teamList || []).length * 5;
 
-      return {
-        id: t.id,
-        name: t.name,
-        league_id: t.league_id,
-        teams_count: teamsCount,
-        completion,
-        updated_at: t.updated_at,
-      };
-    })
-  );
+        return {
+          id: t.id,
+          name: t.name,
+          league_id: t.league_id,
+          teams_count: (teamList || []).length,
+          completion: `${filledPositions}/${totalPositions}`,
+          updated_at: t.updated_at,
+        };
+      })
+    );
 
-  return NextResponse.json(result);
->>>>>>> aa4d265 (fix: 修复部署构建时 COZE_SUPABASE_URL 未设置导致 build 失败的问题)
-}
-
-// POST /api/tournaments - 创建比赛
-export async function POST(req: NextRequest) {
-  const client = getClient();
-  const body = await req.json();
-  const { name, league_id } = body;
-
-  if (!name || !league_id) {
+    return NextResponse.json(summaries);
+  } catch (e: unknown) {
     return NextResponse.json(
-      { error: "比赛名和联赛标识不能为空" },
-      { status: 400 }
+      { error: (e as Error).message },
+      { status: 500 }
     );
   }
+}
 
-  const data = createTournament(name, league_id);
-  return NextResponse.json(data, { status: 201 });
+export async function POST(request: NextRequest) {
+  try {
+    const client = getClient();
+    const body = await request.json();
+    const { data, error } = await client
+      .from("tournaments")
+      .insert({ name: body.name, league_id: body.league_id })
+      .select()
+      .single();
+
+    if (error) throw error;
+    return NextResponse.json(data, { status: 201 });
+  } catch (e: unknown) {
+    return NextResponse.json(
+      { error: (e as Error).message },
+      { status: 500 }
+    );
+  }
 }

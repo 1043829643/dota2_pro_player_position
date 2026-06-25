@@ -1,65 +1,99 @@
 import { NextRequest, NextResponse } from "next/server";
-<<<<<<< HEAD
-import { exportRowsWithTier } from "@/lib/local-store";
-const STEAMID64_BASE = BigInt("76561197960265728");
-=======
 import { getClient } from "@/storage/database/supabase-client";
->>>>>>> aa4d265 (fix: 修复部署构建时 COZE_SUPABASE_URL 未设置导致 build 失败的问题)
 
-// GET /api/export?scope=tournament&id=1 或 /api/export?scope=all
-export async function GET(req: NextRequest) {
-  const client = getClient();
-  const { searchParams } = new URL(req.url);
-  const scope = searchParams.get("scope") ?? "all";
-  const tier = searchParams.get("tier") ?? "all";
-  const tournamentIdRaw = searchParams.get("id");
-  const tournamentId =
-    scope === "tournament" && tournamentIdRaw ? Number(tournamentIdRaw) : undefined;
+export const dynamic = "force-dynamic";
 
-  // 构建 CSV 行
-  const rows: string[] = [
-    "比赛名,league_id,战队名,team_id,选手昵称,位置,steamid64,STRATZ链接",
-  ];
-  const exportData = exportRowsWithTier(
-    scope === "tournament" ? "tournament" : "all",
-    tournamentId,
-    tier === "top" ? "top" : tier === "qualifier" ? "qualifier" : "all"
-  );
-  for (const row of exportData) {
-    const stratzLink = row.player ? getStratzLink(row.player.steamid64) : "";
-    rows.push(
-      [
-        escapeCsv(row.tournament.name),
-        escapeCsv(row.tournament.league_id),
-        escapeCsv(row.team.name),
-        escapeCsv(row.team.team_id ?? ""),
-        escapeCsv(row.player?.nickname ?? ""),
-        row.player ? `${row.player.position}号位` : "",
-        row.player?.steamid64 ?? "",
-        stratzLink,
-      ].join(",")
+const STEAMID64_BASE = BigInt("76561197960265728");
+
+function steamid64ToStratzUrl(steamid64: string): string {
+  try {
+    const accountId = BigInt(steamid64) - STEAMID64_BASE;
+    return `https://stratz.com/players/${accountId}`;
+  } catch {
+    return "";
+  }
+}
+
+export async function GET(request: NextRequest) {
+  try {
+    const client = getClient();
+    const { searchParams } = new URL(request.url);
+    const scope = searchParams.get("scope") || "all";
+    const tournamentId = searchParams.get("id");
+
+    let tournamentFilter = {};
+    if (scope === "tournament" && tournamentId) {
+      tournamentFilter = { tournament_id: parseInt(tournamentId) };
+    }
+
+    const { data: tournamentList, error: tErr } = await client
+      .from("tournaments")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (tErr) throw tErr;
+
+    let filteredTournaments = tournamentList || [];
+    if (scope === "tournament" && tournamentId) {
+      filteredTournaments = filteredTournaments.filter(
+        (t) => t.id === parseInt(tournamentId)
+      );
+    }
+
+    const rows: string[][] = [];
+
+    for (const tournament of filteredTournaments) {
+      const { data: teamList } = await client
+        .from("teams")
+        .select("*")
+        .eq("tournament_id", tournament.id)
+        .order("name");
+
+      for (const team of teamList || []) {
+        const { data: playerList } = await client
+          .from("players")
+          .select("*")
+          .eq("team_id", team.id)
+          .order("position");
+
+        const posMap: Record<number, { nickname: string; steamid64: string }> = {};
+        for (const p of playerList || []) {
+          posMap[p.position] = { nickname: p.nickname, steamid64: p.steamid64 };
+        }
+
+        for (let pos = 1; pos <= 5; pos++) {
+          const player = posMap[pos];
+          const nickname = player?.nickname || "";
+          const steamid64 = player?.steamid64 || "";
+          const stratzUrl = steamid64 ? steamid64ToStratzUrl(steamid64) : "";
+
+          rows.push([
+            tournament.name,
+            tournament.league_id,
+            team.name,
+            team.team_id || "",
+            nickname,
+            `${pos}号位`,
+            steamid64,
+            stratzUrl,
+          ]);
+        }
+      }
+    }
+
+    const header = "比赛名,league_id,战队名,team_id,选手昵称,位置,steamid64,STRATZ链接";
+    const csv = [header, ...rows.map((r) => r.join(","))].join("\n");
+
+    return new NextResponse(csv, {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": 'attachment; filename="roster-export.csv"',
+      },
+    });
+  } catch (e: unknown) {
+    return NextResponse.json(
+      { error: (e as Error).message },
+      { status: 500 }
     );
   }
-
-  const csv = rows.join("\n");
-  return new NextResponse(csv, {
-    headers: {
-      "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="lineup-export-${Date.now()}.csv"`,
-    },
-  });
-}
-
-function escapeCsv(value: string): string {
-  if (value.includes(",") || value.includes('"') || value.includes("\n")) {
-    return `"${value.replace(/"/g, '""')}"`;
-  }
-  return value;
-}
-
-function getStratzLink(steamid64: string | null): string {
-  if (!steamid64 || !/^\d{17}$/.test(steamid64)) return "";
-  const accountId = BigInt(steamid64) - STEAMID64_BASE;
-  if (accountId <= BigInt(0)) return "";
-  return `https://stratz.com/players/${accountId.toString()}`;
 }

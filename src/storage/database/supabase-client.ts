@@ -1,147 +1,24 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { execSync } from 'child_process';
-import dotenv from 'dotenv';
+import * as schema from './shared/schema';
 
-let envLoaded = false;
+let clientInstance: SupabaseClient | null = null;
 
-interface SupabaseCredentials {
-  url: string;
-  anonKey: string;
+function getEnvVar(name: string): string {
+  const val = process.env[name];
+  if (!val) {
+    throw new Error(`${name} is not set`);
+  }
+  return val;
 }
 
-function loadEnv(): void {
-  if (envLoaded || (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY)) {
-    return;
-  }
+export function getClient(): SupabaseClient {
+  if (clientInstance) return clientInstance;
 
-  try {
-    try {
-      dotenv.config();
-      if (process.env.COZE_SUPABASE_URL && process.env.COZE_SUPABASE_ANON_KEY) {
-        envLoaded = true;
-        return;
-      }
-    } catch {
-      // dotenv not available
-    }
+  const supabaseUrl = getEnvVar('COZE_SUPABASE_URL');
+  const supabaseKey = getEnvVar('COZE_SUPABASE_SERVICE_ROLE_KEY');
 
-    const pythonCode = `
-import os
-import sys
-try:
-    from coze_workload_identity import Client
-    client = Client()
-    env_vars = client.get_project_env_vars()
-    client.close()
-    for env_var in env_vars:
-        print(f"{env_var.key}={env_var.value}")
-except Exception as e:
-    print(f"# Error: {e}", file=sys.stderr)
-`;
-
-    let output = '';
-    let commandWorked = false;
-    const escaped = pythonCode.replace(/'/g, "'\"'\"'");
-    for (const cmd of [`python -c '${escaped}'`, `python3 -c '${escaped}'`]) {
-      try {
-        output = execSync(cmd, {
-          encoding: 'utf-8',
-          timeout: 10000,
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-        commandWorked = true;
-        break;
-      } catch {
-        // try next python command candidate
-      }
-    }
-    if (!commandWorked) {
-      return;
-    }
-
-    const lines = output.trim().split('\n');
-    for (const line of lines) {
-      if (line.startsWith('#')) continue;
-      const eqIndex = line.indexOf('=');
-      if (eqIndex > 0) {
-        const key = line.substring(0, eqIndex);
-        let value = line.substring(eqIndex + 1);
-        if ((value.startsWith("'") && value.endsWith("'")) ||
-            (value.startsWith('"') && value.endsWith('"'))) {
-          value = value.slice(1, -1);
-        }
-        if (!process.env[key]) {
-          process.env[key] = value;
-        }
-      }
-    }
-
-    envLoaded = true;
-  } catch {
-    // Silently fail
-  }
+  clientInstance = createClient(supabaseUrl, supabaseKey);
+  return clientInstance;
 }
 
-function getSupabaseCredentials(): SupabaseCredentials {
-  loadEnv();
-
-  const url = process.env.COZE_SUPABASE_URL;
-  const anonKey = process.env.COZE_SUPABASE_ANON_KEY;
-
-  if (!url) {
-    throw new Error('COZE_SUPABASE_URL is not set');
-  }
-  if (!anonKey) {
-    throw new Error('COZE_SUPABASE_ANON_KEY is not set');
-  }
-
-  return { url, anonKey };
-}
-
-function getSupabaseServiceRoleKey(): string | undefined {
-  loadEnv();
-  return process.env.COZE_SUPABASE_SERVICE_ROLE_KEY;
-}
-
-function getSupabaseClient(token?: string): SupabaseClient {
-  const { url, anonKey } = getSupabaseCredentials();
-
-  let key: string;
-  if (token) {
-    key = anonKey;
-  } else {
-    const serviceRoleKey = getSupabaseServiceRoleKey();
-    key = serviceRoleKey ?? anonKey;
-  }
-
-  const globalOptions: {
-    headers?: Record<string, string>;
-  } = {};
-  if (token) {
-    globalOptions.headers = { Authorization: `Bearer ${token}` };
-  }
-
-  return createClient(url, key, {
-    global: globalOptions,
-    db: {
-      timeout: 60000,
-    },
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-}
-
-let _cachedClient: SupabaseClient | null = null;
-
-/**
- * 懒加载单例：仅在首次调用时初始化，避免 next build 阶段因缺少环境变量而报错
- */
-function getClient(): SupabaseClient {
-  if (_cachedClient) return _cachedClient;
-  _cachedClient = getSupabaseClient();
-  return _cachedClient;
-}
-
-export { loadEnv, getSupabaseCredentials, getSupabaseServiceRoleKey, getSupabaseClient, getClient };
+export type Database = typeof schema;
