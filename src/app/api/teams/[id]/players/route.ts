@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import {
   addPlayerToTeam,
   findPlayerByTeamAndPosition,
   listPlayersByTeamId,
 } from "@/lib/local-store";
+=======
+import { getClient } from "@/storage/database/supabase-client";
+>>>>>>> aa4d265 (fix: 修复部署构建时 COZE_SUPABASE_URL 未设置导致 build 失败的问题)
 
 // GET /api/teams/[id]/players - 获取战队所有选手
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const client = getClient();
   const { id } = await params;
   return NextResponse.json(listPlayersByTeamId(Number(id)));
 }
@@ -19,6 +24,7 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const client = getClient();
   const { id } = await params;
   const body = await req.json();
   const validationError = validateNewPlayerPayload(body);

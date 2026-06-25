@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import { exportRowsWithTier } from "@/lib/local-store";
 const STEAMID64_BASE = BigInt("76561197960265728");
+=======
+import { getClient } from "@/storage/database/supabase-client";
+>>>>>>> aa4d265 (fix: 修复部署构建时 COZE_SUPABASE_URL 未设置导致 build 失败的问题)
 
 // GET /api/export?scope=tournament&id=1 或 /api/export?scope=all
 export async function GET(req: NextRequest) {
+  const client = getClient();
   const { searchParams } = new URL(req.url);
   const scope = searchParams.get("scope") ?? "all";
   const tier = searchParams.get("tier") ?? "all";

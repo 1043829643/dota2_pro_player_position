@@ -133,4 +133,15 @@ function getSupabaseClient(token?: string): SupabaseClient {
   });
 }
 
-export { loadEnv, getSupabaseCredentials, getSupabaseServiceRoleKey, getSupabaseClient };
+let _cachedClient: SupabaseClient | null = null;
+
+/**
+ * 懒加载单例：仅在首次调用时初始化，避免 next build 阶段因缺少环境变量而报错
+ */
+function getClient(): SupabaseClient {
+  if (_cachedClient) return _cachedClient;
+  _cachedClient = getSupabaseClient();
+  return _cachedClient;
+}
+
+export { loadEnv, getSupabaseCredentials, getSupabaseServiceRoleKey, getSupabaseClient, getClient };

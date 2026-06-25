@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+<<<<<<< HEAD
 import { deletePlayerById, updatePlayerById } from "@/lib/local-store";
+=======
+import { getClient } from "@/storage/database/supabase-client";
+>>>>>>> aa4d265 (fix: 修复部署构建时 COZE_SUPABASE_URL 未设置导致 build 失败的问题)
 
 // PUT /api/players/[id] - 更新选手
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const client = getClient();
   const { id } = await params;
   const body = await req.json();
   const validationError = validatePlayerPayload(body);
@@ -34,6 +39,7 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const client = getClient();
   const { id } = await params;
   const deleted = deletePlayerById(Number(id));
   if (!deleted) {
