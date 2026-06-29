@@ -44,6 +44,8 @@ async function withConnection<T>(
 // 列出所有出现过的联赛（按比赛场次倒序），附带时间范围、版本号、参赛队伍
 export async function listAllLeagues(): Promise<LeagueCatalogRow[]> {
   return withConnection(async (conn) => {
+    // 不再要求联赛名非空：有比赛但无名的联赛（如名字维表尚未补全）也一并返回，
+    // 名字为空时前端展示为「未命名联赛 #<id>」。
     const [summaryRows] = await conn.query(
       `SELECT league_id, MAX(league_name) AS league_name, COUNT(*) AS match_count,
               DATE_FORMAT(MIN(start_date), '%Y-%m-%d') AS first_date,
@@ -51,7 +53,6 @@ export async function listAllLeagues(): Promise<LeagueCatalogRow[]> {
               group_concat(DISTINCT patch_version) AS patches
        FROM dwd_match_overview
        WHERE league_id IS NOT NULL AND league_id > 0
-         AND league_name IS NOT NULL AND league_name <> ''
        GROUP BY league_id
        ORDER BY match_count DESC`
     );
@@ -85,9 +86,10 @@ export async function listAllLeagues(): Promise<LeagueCatalogRow[]> {
       const teams = (teamsByLeague.get(lid) ?? []).sort((a, b) =>
         a.localeCompare(b)
       );
+      const rawName = String(r.league_name ?? "").trim();
       return {
         league_id: lid,
-        league_name: String(r.league_name ?? ""),
+        league_name: rawName || `未命名联赛 #${lid}`,
         match_count: Number(r.match_count ?? 0),
         first_date: r.first_date == null ? null : String(r.first_date),
         last_date: r.last_date == null ? null : String(r.last_date),
