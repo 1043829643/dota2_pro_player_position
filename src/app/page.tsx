@@ -36,10 +36,6 @@ import {
   Fingerprint,
 } from "lucide-react";
 
-// 同阵容多 team_id 检测工具（独立 Python 服务，默认 8050 端口），方式A松耦合集成
-const TEAMID_TOOL_URL =
-  process.env.NEXT_PUBLIC_TEAMID_TOOL_URL ?? "http://127.0.0.1:8050/";
-
 interface Tournament {
   id: number;
   name: string;
@@ -241,9 +237,8 @@ export default function HomePage() {
             </Button>
             <Button
               variant="outline"
-              onClick={() => window.open(TEAMID_TOOL_URL, "_blank", "noopener")}
+              onClick={() => router.push("/team-id")}
               className="gap-2"
-              title="打开同阵容多 team_id 检测工具（需先启动 Python 服务）"
             >
               <Fingerprint className="w-4 h-4" />
               队伍ID工具
