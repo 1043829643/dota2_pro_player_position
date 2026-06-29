@@ -23,6 +23,12 @@ import {
   Users,
   Trophy,
   ScanSearch,
+  Table2,
+  Plus,
+  Trash2,
+  Save,
+  RefreshCw,
+  ListPlus,
 } from "lucide-react";
 
 interface AnomalyRow {
@@ -50,6 +56,17 @@ interface TeamInfo {
 interface PlayerCandidate {
   steamid: string;
   name: string;
+}
+
+interface ManualRecord {
+  group_id: string;
+  roster: string;
+  league_id: string;
+  league_name: string;
+  team_id: string;
+  team_name: string;
+  team_logo: string;
+  note: string;
 }
 
 interface TrackResult {
@@ -119,6 +136,14 @@ export default function TeamIdPage() {
   const [searching, setSearching] = useState(false);
   const [tracking, setTracking] = useState(false);
   const [track, setTrack] = useState<TrackResult | null>(null);
+
+  // 维护表
+  const [tab, setTab] = useState("detect");
+  const [records, setRecords] = useState<ManualRecord[]>([]);
+  const [recordsLoaded, setRecordsLoaded] = useState(false);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsDirty, setRecordsDirty] = useState(false);
+  const [savingRecords, setSavingRecords] = useState(false);
 
   const loadLogos = useCallback(
     async (teamIds: string[]) => {
@@ -219,6 +244,121 @@ export default function TeamIdPage() {
     }
   };
 
+  // ===== 维护表 =====
+  const loadRecords = useCallback(async () => {
+    setRecordsLoading(true);
+    try {
+      const res = await fetch("/api/team-id/manual-records");
+      if (!res.ok) throw new Error("读取维护表失败");
+      const data = await res.json();
+      setRecords(data.records ?? []);
+      setRecordsLoaded(true);
+      setRecordsDirty(false);
+      loadLogos((data.records ?? []).map((r: ManualRecord) => r.team_id).filter(Boolean));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "读取维护表失败");
+    } finally {
+      setRecordsLoading(false);
+    }
+  }, [loadLogos]);
+
+  const handleTabChange = (v: string) => {
+    setTab(v);
+    if (v === "manual" && !recordsLoaded && !recordsLoading) {
+      loadRecords();
+    }
+  };
+
+  const saveRecords = async () => {
+    setSavingRecords(true);
+    try {
+      const res = await fetch("/api/team-id/manual-records/save-all", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ records }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "保存失败");
+      }
+      const data = await res.json();
+      setRecords(data.records ?? []);
+      setRecordsDirty(false);
+      toast.success(`已保存 ${data.records?.length ?? 0} 条记录`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setSavingRecords(false);
+    }
+  };
+
+  const updateRecord = (index: number, field: keyof ManualRecord, value: string) => {
+    setRecords((prev) => {
+      const next = [...prev];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+    setRecordsDirty(true);
+  };
+
+  const nextGroupId = () => {
+    const ids = records.map((r) => Number(r.group_id)).filter((n) => !Number.isNaN(n));
+    return ids.length ? String(Math.max(...ids) + 1) : "1";
+  };
+
+  const addRecord = (template?: Partial<ManualRecord>) => {
+    const blank: ManualRecord = {
+      group_id: template?.group_id ?? nextGroupId(),
+      roster: template?.roster ?? "",
+      league_id: template?.league_id ?? "",
+      league_name: template?.league_name ?? "",
+      team_id: template?.team_id ?? "",
+      team_name: template?.team_name ?? "",
+      team_logo: template?.team_logo ?? "",
+      note: template?.note ?? "",
+    };
+    setRecords((prev) => [...prev, blank]);
+    setRecordsDirty(true);
+  };
+
+  const removeRecord = (index: number) => {
+    setRecords((prev) => prev.filter((_, i) => i !== index));
+    setRecordsDirty(true);
+  };
+
+  // 从检测结果一键加入维护表
+  const addAnomalyToManual = (r: AnomalyRow) => {
+    const gid = nextGroupId();
+    const teamPieces = parsePieces(r.team_id_names);
+    const players = parsePieces(r.roster_players);
+    const leagues = parsePieces(r.league_name);
+    const rosterStr = players.map((p) => p.label || p.id).join("、");
+    const leagueId = r.league_id?.split(",")[0]?.trim() || leagues[0]?.id || "";
+    const leagueName = leagues[0]?.label || leagues[0]?.id || "";
+    const newRows: ManualRecord[] = teamPieces.map((t) => ({
+      group_id: gid,
+      roster: rosterStr,
+      league_id: leagueId,
+      league_name: leagueName,
+      team_id: t.id,
+      team_name: t.label,
+      team_logo: logos[t.id]?.logo_url ?? "",
+      note: "",
+    }));
+    if (newRows.length === 0) {
+      toast.message("该异常没有可加入的 team_id");
+      return;
+    }
+    setRecords((prev) => {
+      if (recordsLoaded) return [...prev, ...newRows];
+      return newRows;
+    });
+    setRecordsLoaded(true);
+    setRecordsDirty(true);
+    setTab("manual");
+    toast.success(`已加入维护表（组 ${gid}，${newRows.length} 个 team_id），记得点击保存`);
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       <Toaster position="top-right" richColors />
@@ -242,13 +382,16 @@ export default function TeamIdPage() {
           </Button>
         </div>
 
-        <Tabs defaultValue="detect">
+        <Tabs value={tab} onValueChange={handleTabChange}>
           <TabsList>
             <TabsTrigger value="detect" className="gap-1">
               <ScanSearch className="w-4 h-4" /> 同阵容检测
             </TabsTrigger>
             <TabsTrigger value="track" className="gap-1">
               <Users className="w-4 h-4" /> 选手追踪
+            </TabsTrigger>
+            <TabsTrigger value="manual" className="gap-1">
+              <Table2 className="w-4 h-4" /> 维护表
             </TabsTrigger>
           </TabsList>
 
@@ -302,9 +445,38 @@ export default function TeamIdPage() {
               </CardContent>
             </Card>
 
-            {rows.length > 0 && (
-              <div className="text-sm text-slate-500">共 {rows.length} 组同阵容多 team_id 异常</div>
-            )}
+            {rows.length > 0 && (() => {
+              const distinctTeamIds = new Set(
+                rows.flatMap((r) => r.team_ids.split(",").map((s) => s.trim()).filter(Boolean))
+              );
+              const distinctLeagues = new Set(
+                rows.flatMap((r) =>
+                  String(r.league_id).split(",").map((s) => s.trim()).filter(Boolean)
+                )
+              );
+              const totalMatches = rows.reduce(
+                (acc, r) => acc + (r.match_ids ? r.match_ids.split(",").filter(Boolean).length : 0),
+                0
+              );
+              const stats = [
+                { label: "异常组", value: rows.length },
+                { label: "涉及 team_id", value: distinctTeamIds.size },
+                { label: "涉及联赛", value: distinctLeagues.size },
+                { label: "涉及比赛", value: totalMatches },
+              ];
+              return (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  {stats.map((s) => (
+                    <Card key={s.label}>
+                      <CardContent className="py-3 text-center">
+                        <div className="text-2xl font-bold text-rose-600">{s.value}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{s.label}</div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              );
+            })()}
 
             <div className="space-y-3">
               {rows.map((r, i) => {
@@ -330,6 +502,14 @@ export default function TeamIdPage() {
                         <span className="text-xs text-slate-400 ml-auto">
                           {fmtDate(r.first_seen)} ~ {fmtDate(r.last_seen)}
                         </span>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 gap-1 text-xs"
+                          onClick={() => addAnomalyToManual(r)}
+                        >
+                          <ListPlus className="w-3.5 h-3.5" /> 加入维护表
+                        </Button>
                       </div>
 
                       <div className="flex flex-wrap gap-2">
@@ -459,6 +639,105 @@ export default function TeamIdPage() {
                   </Card>
                 </div>
               </>
+            )}
+          </TabsContent>
+
+          {/* ===== 维护表 ===== */}
+          <TabsContent value="manual" className="mt-4 space-y-4">
+            <Card>
+              <CardContent className="py-4 flex flex-wrap items-center gap-3">
+                <div className="text-sm text-slate-600">
+                  同一支真实队伍的多个 team_id 映射表（共 {records.length} 条）
+                  {recordsDirty && <span className="text-amber-600 ml-2">· 有未保存改动</span>}
+                </div>
+                <div className="ml-auto flex gap-2">
+                  <Button variant="outline" size="sm" className="gap-1" onClick={loadRecords} disabled={recordsLoading}>
+                    <RefreshCw className={`w-4 h-4 ${recordsLoading ? "animate-spin" : ""}`} /> 刷新
+                  </Button>
+                  <Button variant="outline" size="sm" className="gap-1" onClick={() => addRecord()}>
+                    <Plus className="w-4 h-4" /> 新增一行
+                  </Button>
+                  <Button size="sm" className="gap-1" onClick={saveRecords} disabled={savingRecords || !recordsDirty}>
+                    <Save className="w-4 h-4" /> {savingRecords ? "保存中..." : "保存"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {recordsLoading && records.length === 0 ? (
+              <div className="text-sm text-slate-400 py-8 text-center">加载中...</div>
+            ) : records.length === 0 ? (
+              <div className="text-sm text-slate-400 py-8 text-center">
+                暂无记录。可在「同阵容检测」结果中点击「加入维护表」，或点击上方「新增一行」。
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="p-0 overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-100 text-slate-500">
+                      <tr>
+                        <th className="px-2 py-2 text-left w-12">组</th>
+                        <th className="px-2 py-2 text-left min-w-[160px]">阵容</th>
+                        <th className="px-2 py-2 text-left w-20">联赛ID</th>
+                        <th className="px-2 py-2 text-left min-w-[140px]">联赛名</th>
+                        <th className="px-2 py-2 text-left w-8">徽</th>
+                        <th className="px-2 py-2 text-left w-24">team_id</th>
+                        <th className="px-2 py-2 text-left min-w-[100px]">队名</th>
+                        <th className="px-2 py-2 text-left min-w-[100px]">备注</th>
+                        <th className="px-2 py-2 text-left w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {records.map((r, i) => {
+                        const gid = r.group_id || "";
+                        const gNum = Number(gid);
+                        const stripe = !Number.isNaN(gNum)
+                          ? gNum % 2 === 0
+                            ? "bg-sky-50/60"
+                            : "bg-white"
+                          : "bg-white";
+                        const logoUrl = r.team_logo || logos[r.team_id]?.logo_url || "";
+                        const cell = (field: keyof ManualRecord, w = "") => (
+                          <Input
+                            value={r[field]}
+                            onChange={(e) => updateRecord(i, field, e.target.value)}
+                            className={`h-7 text-xs px-1.5 ${w}`}
+                          />
+                        );
+                        return (
+                          <tr key={i} className={`${stripe} border-t border-slate-100`}>
+                            <td className="px-2 py-1">{cell("group_id")}</td>
+                            <td className="px-2 py-1">{cell("roster")}</td>
+                            <td className="px-2 py-1">{cell("league_id")}</td>
+                            <td className="px-2 py-1">{cell("league_name")}</td>
+                            <td className="px-2 py-1 text-center">
+                              {logoUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={logoUrl} alt="" className="w-5 h-5 rounded object-contain inline-block" />
+                              ) : (
+                                <span className="inline-block w-5 h-5 rounded bg-slate-200" />
+                              )}
+                            </td>
+                            <td className="px-2 py-1">{cell("team_id")}</td>
+                            <td className="px-2 py-1">{cell("team_name")}</td>
+                            <td className="px-2 py-1">{cell("note")}</td>
+                            <td className="px-2 py-1 text-center">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-7 w-7 text-rose-500 hover:text-rose-600"
+                                onClick={() => removeRecord(i)}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </CardContent>
+              </Card>
             )}
           </TabsContent>
         </Tabs>
