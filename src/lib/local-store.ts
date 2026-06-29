@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 
@@ -460,6 +461,276 @@ export function movePlayerPositionWithSwap(
     moved: true,
     swapped_with_player_id: occupied?.id,
     team_id: player.team_id,
+  };
+}
+
+// ===== 从 StarRocks 比赛明细启发式重建并导入联赛 =====
+
+export interface RawPlayerRow {
+  team_name: string | null;
+  steamid: string | null;
+  name: string | null;
+  hits_5m: number | null;
+}
+
+export interface LeagueImportResult {
+  league_id: string;
+  league_name: string;
+  tournament_id: number;
+  teams_imported: number;
+  skipped_incomplete_teams: number;
+}
+
+interface BuiltPlayer {
+  steamid: string;
+  nickname: string;
+  count: number;
+  avgHits: number;
+}
+
+interface BuiltTeam {
+  team_name: string;
+  team_tag: string;
+  team_id: string;
+  positions: Record<number, BuiltPlayer>;
+}
+
+// 返回当前本地库已存在的 league_id 集合
+export function getExistingLeagueIds(): Set<string> {
+  const db = loadData();
+  return new Set(db.tournaments.map((t) => String(t.league_id)));
+}
+
+// 基于已有数据，统计每个 steamid 最常见的位置，作为重建时的分路提示
+function buildPositionHints(db: LocalStoreData): Map<string, number> {
+  const bySid = new Map<string, Map<number, number>>();
+  for (const p of db.players) {
+    if (!p.steamid64 || !p.position) continue;
+    const counts = bySid.get(p.steamid64) ?? new Map<number, number>();
+    counts.set(p.position, (counts.get(p.position) ?? 0) + 1);
+    bySid.set(p.steamid64, counts);
+  }
+  const hints = new Map<string, number>();
+  for (const [sid, counts] of bySid.entries()) {
+    let bestPos = 0;
+    let bestCount = -1;
+    for (const [pos, c] of counts.entries()) {
+      if (c > bestCount) {
+        bestCount = c;
+        bestPos = pos;
+      }
+    }
+    if (bestPos) hints.set(sid, bestPos);
+  }
+  return hints;
+}
+
+function normalizeTeamName(name: string): string {
+  return name.trim().split(/\s+/).join(" ");
+}
+
+function teamTagFromName(name: string): string {
+  const normalized = normalizeTeamName(name);
+  if (normalized.length <= 8) return normalized;
+  const parts = normalized
+    .replace(/-/g, " ")
+    .split(" ")
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return parts
+      .slice(0, 4)
+      .map((p) => p[0].toUpperCase())
+      .join("")
+      .slice(0, 8);
+  }
+  return normalized.slice(0, 8);
+}
+
+function syntheticTeamId(leagueId: string, teamName: string): string {
+  const digest = crypto
+    .createHash("md5")
+    .update(`${leagueId}:${teamName}`)
+    .digest("hex")
+    .slice(0, 12);
+  return BigInt(`0x${digest}`).toString();
+}
+
+// 启发式重建：每队取出场最多的 5 人，先按分路提示分配，剩余按补刀均值排序填入空位
+function buildLineups(
+  rows: RawPlayerRow[],
+  positionHints: Map<string, number>,
+  leagueId: string
+): { teams: BuiltTeam[]; skippedIncomplete: number } {
+  const stats = new Map<
+    string,
+    { count: number; hits: number[]; names: Map<string, number> }
+  >();
+  const teamNameByKey = new Map<string, string>();
+
+  for (const row of rows) {
+    const teamName = normalizeTeamName(row.team_name ?? "");
+    if (!teamName) continue;
+    const sid = (row.steamid ?? "").trim();
+    if (!sid) continue;
+    const key = `${teamName}\u0000${sid}`;
+    teamNameByKey.set(key, teamName);
+    const st = stats.get(key) ?? {
+      count: 0,
+      hits: [] as number[],
+      names: new Map<string, number>(),
+    };
+    st.count += 1;
+    if (row.hits_5m != null && !Number.isNaN(row.hits_5m)) st.hits.push(row.hits_5m);
+    if (row.name) st.names.set(row.name, (st.names.get(row.name) ?? 0) + 1);
+    stats.set(key, st);
+  }
+
+  const teamMap = new Map<string, BuiltPlayer[]>();
+  for (const [key, st] of stats.entries()) {
+    const teamName = teamNameByKey.get(key)!;
+    const sid = key.slice(key.indexOf("\u0000") + 1);
+    const avgHits = st.hits.length
+      ? st.hits.reduce((a, b) => a + b, 0) / st.hits.length
+      : 0;
+    let bestName = sid;
+    let bestNameCount = -1;
+    for (const [n, c] of st.names.entries()) {
+      if (c > bestNameCount) {
+        bestNameCount = c;
+        bestName = n;
+      }
+    }
+    const list = teamMap.get(teamName) ?? [];
+    list.push({ steamid: sid, nickname: bestName, count: st.count, avgHits });
+    teamMap.set(teamName, list);
+  }
+
+  const teams: BuiltTeam[] = [];
+  let skippedIncomplete = 0;
+
+  for (const [teamName, players] of teamMap.entries()) {
+    const top5 = players
+      .slice()
+      .sort((a, b) => b.count - a.count || b.avgHits - a.avgHits)
+      .slice(0, 5);
+    if (top5.length < 5) {
+      skippedIncomplete += 1;
+      continue;
+    }
+
+    const assigned: Record<number, BuiltPlayer> = {};
+    const usedPositions = new Set<number>();
+
+    for (const p of top5) {
+      const hint = positionHints.get(p.steamid);
+      if (hint && !usedPositions.has(hint)) {
+        assigned[hint] = p;
+        usedPositions.add(hint);
+      }
+    }
+
+    const remainingPlayers = top5
+      .filter((p) => !Object.values(assigned).includes(p))
+      .sort((a, b) => b.avgHits - a.avgHits);
+    const remainingPositions = [1, 2, 3, 4, 5].filter((pos) => !usedPositions.has(pos));
+    remainingPositions.forEach((pos, idx) => {
+      if (remainingPlayers[idx]) assigned[pos] = remainingPlayers[idx];
+    });
+
+    if ([1, 2, 3, 4, 5].some((pos) => !assigned[pos])) {
+      skippedIncomplete += 1;
+      continue;
+    }
+
+    teams.push({
+      team_name: teamName,
+      team_tag: teamTagFromName(teamName),
+      team_id: syntheticTeamId(leagueId, teamName),
+      positions: assigned,
+    });
+  }
+
+  teams.sort((a, b) => a.team_name.localeCompare(b.team_name));
+  return { teams, skippedIncomplete };
+}
+
+// 将重建出的联赛阵容合并进本地库（按 league_id 去重，按 战队名 去重并整队替换选手）
+export function importLeagueFromRawRows(
+  leagueId: string,
+  leagueName: string,
+  rows: RawPlayerRow[]
+): LeagueImportResult {
+  const db = loadData();
+  const now = new Date().toISOString();
+  const positionHints = buildPositionHints(db);
+  const { teams: builtTeams, skippedIncomplete } = buildLineups(
+    rows,
+    positionHints,
+    leagueId
+  );
+
+  let tournament = db.tournaments.find((t) => String(t.league_id) === String(leagueId));
+  if (!tournament) {
+    tournament = {
+      id: nextId(db.tournaments.map((t) => t.id)),
+      name: leagueName,
+      league_id: String(leagueId),
+      event_tier: classifyTournamentTier(leagueName),
+      created_at: now,
+      updated_at: now,
+    };
+    db.tournaments.push(tournament);
+  } else {
+    tournament.name = leagueName;
+    tournament.event_tier = classifyTournamentTier(leagueName);
+    tournament.updated_at = now;
+  }
+
+  for (const bt of builtTeams) {
+    let team = db.teams.find(
+      (t) => t.tournament_id === tournament!.id && t.name === bt.team_name
+    );
+    if (!team) {
+      team = {
+        id: nextId(db.teams.map((t) => t.id)),
+        tournament_id: tournament.id,
+        name: bt.team_name,
+        short_name: bt.team_tag || null,
+        team_id: bt.team_id,
+        status: "完整",
+        created_at: now,
+        updated_at: now,
+      };
+      db.teams.push(team);
+    } else {
+      team.short_name = bt.team_tag || null;
+      team.team_id = bt.team_id;
+      team.status = "完整";
+      team.updated_at = now;
+    }
+
+    db.players = db.players.filter((p) => p.team_id !== team!.id);
+    for (const pos of [1, 2, 3, 4, 5]) {
+      const p = bt.positions[pos];
+      db.players.push({
+        id: nextId(db.players.map((x) => x.id)),
+        team_id: team.id,
+        nickname: p.nickname,
+        steamid64: p.steamid,
+        position: pos,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+  }
+
+  saveData(db);
+  return {
+    league_id: String(leagueId),
+    league_name: leagueName,
+    tournament_id: tournament.id,
+    teams_imported: builtTeams.length,
+    skipped_incomplete_teams: skippedIncomplete,
   };
 }
 

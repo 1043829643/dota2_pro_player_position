@@ -32,6 +32,7 @@ import {
   Hash,
   UserCog,
   Download,
+  Database,
 } from "lucide-react";
 
 interface Tournament {
@@ -55,6 +56,7 @@ export default function HomePage() {
   const [tierFilter, setTierFilter] = useState<"全部" | "顶级赛事" | "预选赛">("全部");
   const [openExport, setOpenExport] = useState(false);
   const [exportTier, setExportTier] = useState<"all" | "top" | "qualifier">("all");
+  const [exportFormat, setExportFormat] = useState<"full" | "ids">("full");
   const [exporting, setExporting] = useState(false);
 
   const fetchTournaments = useCallback(async () => {
@@ -150,13 +152,15 @@ export default function HomePage() {
       const params = new URLSearchParams({
         scope: "all",
         tier: exportTier,
+        format: exportFormat,
       });
       const res = await fetch(`/api/export?${params.toString()}`);
       if (!res.ok) throw new Error("导出失败");
       const blob = await res.blob();
       const tierName =
         exportTier === "top" ? "top" : exportTier === "qualifier" ? "qualifier" : "all";
-      const fileName = `lineup-export-${tierName}-${Date.now()}.csv`;
+      const formatName = exportFormat === "ids" ? "ids" : "full";
+      const fileName = `lineup-export-${tierName}-${formatName}-${Date.now()}.csv`;
 
       type SavePickerWindow = Window & {
         showSaveFilePicker?: (options: {
@@ -222,6 +226,10 @@ export default function HomePage() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => router.push("/leagues")} className="gap-2">
+              <Database className="w-4 h-4" />
+              联赛库
+            </Button>
             <Button variant="outline" onClick={() => router.push("/players")} className="gap-2">
               <UserCog className="w-4 h-4" />
               选手管理
@@ -375,6 +383,21 @@ export default function HomePage() {
                   <SelectItem value="all">全部赛事</SelectItem>
                   <SelectItem value="top">仅顶级赛事</SelectItem>
                   <SelectItem value="qualifier">仅预选赛</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>导出字段</Label>
+              <Select
+                value={exportFormat}
+                onValueChange={(v: "full" | "ids") => setExportFormat(v)}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择导出字段" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="full">完整信息（含战队、昵称、链接）</SelectItem>
+                  <SelectItem value="ids">仅 联赛id + steamid + 位置</SelectItem>
                 </SelectContent>
               </Select>
             </div>

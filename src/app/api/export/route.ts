@@ -7,20 +7,37 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const scope = searchParams.get("scope") ?? "all";
   const tier = searchParams.get("tier") ?? "all";
+  const format = searchParams.get("format") ?? "full";
   const tournamentIdRaw = searchParams.get("id");
   const tournamentId =
     scope === "tournament" && tournamentIdRaw ? Number(tournamentIdRaw) : undefined;
 
-  // 构建 CSV 行
-  const rows: string[] = [
-    "比赛名,league_id,战队名,team_id,选手昵称,位置,steamid64,STRATZ链接",
-  ];
   const exportData = exportRowsWithTier(
     scope === "tournament" ? "tournament" : "all",
     tournamentId,
     tier === "top" ? "top" : tier === "qualifier" ? "qualifier" : "all"
   );
+
+  // 精简格式：仅 联赛id + steamid + 位置
+  const isIdsFormat = format === "ids";
+  const rows: string[] = isIdsFormat
+    ? ["league_id,steamid64,position"]
+    : ["比赛名,league_id,战队名,team_id,选手昵称,位置,steamid64,STRATZ链接"];
+
   for (const row of exportData) {
+    if (isIdsFormat) {
+      // 仅导出有 steamid 的选手记录
+      if (!row.player?.steamid64) continue;
+      rows.push(
+        [
+          escapeCsv(row.tournament.league_id),
+          row.player.steamid64,
+          String(row.player.position),
+        ].join(",")
+      );
+      continue;
+    }
+
     const stratzLink = row.player ? getStratzLink(row.player.steamid64) : "";
     rows.push(
       [

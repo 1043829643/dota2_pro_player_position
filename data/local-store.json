@@ -199,6 +199,14 @@
       "event_tier": "预选赛",
       "created_at": "2026-06-08T05:48:48.886319Z",
       "updated_at": "2026-06-08T05:48:48.886319Z"
+    },
+    {
+      "id": 26,
+      "name": "BLAST SLAM VII",
+      "league_id": "19101",
+      "event_tier": "顶级赛事",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
     }
   ],
   "teams": [
@@ -7921,6 +7929,126 @@
       "status": "完整",
       "created_at": "2026-06-08T05:48:48.886319Z",
       "updated_at": "2026-06-08T05:48:48.886319Z"
+    },
+    {
+      "id": 773,
+      "tournament_id": 26,
+      "name": "Aurora",
+      "short_name": "Aurora",
+      "team_id": "272670133118917",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 774,
+      "tournament_id": 26,
+      "name": "BB",
+      "short_name": "BB",
+      "team_id": "259854732706025",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 775,
+      "tournament_id": 26,
+      "name": "FLCN",
+      "short_name": "FLCN",
+      "team_id": "248081375480287",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 776,
+      "tournament_id": 26,
+      "name": "GLYPH",
+      "short_name": "GLYPH",
+      "team_id": "241056943305671",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 777,
+      "tournament_id": 26,
+      "name": "LGD",
+      "short_name": "LGD",
+      "team_id": "95069106088915",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 778,
+      "tournament_id": 26,
+      "name": "Liquid",
+      "short_name": "Liquid",
+      "team_id": "138209717738333",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 779,
+      "tournament_id": 26,
+      "name": "OG",
+      "short_name": "OG",
+      "team_id": "44678712922192",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 780,
+      "tournament_id": 26,
+      "name": "PARI",
+      "short_name": "PARI",
+      "team_id": "63055729596551",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 781,
+      "tournament_id": 26,
+      "name": "TSpirit",
+      "short_name": "TSpirit",
+      "team_id": "113901208183141",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 782,
+      "tournament_id": 26,
+      "name": "TY",
+      "short_name": "TY",
+      "team_id": "52759494035354",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 783,
+      "tournament_id": 26,
+      "name": "Tundra",
+      "short_name": "Tundra",
+      "team_id": "37270415498593",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 784,
+      "tournament_id": 26,
+      "name": "XG",
+      "short_name": "XG",
+      "team_id": "169607886448123",
+      "status": "完整",
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
     }
   ],
   "players": [
@@ -42663,6 +42791,546 @@
       "position": 5,
       "created_at": "2026-06-08T05:48:48.886319Z",
       "updated_at": "2026-06-08T05:48:48.886319Z"
+    },
+    {
+      "id": 3861,
+      "team_id": 773,
+      "nickname": "Nightfall",
+      "steamid64": "76561198085066985",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3862,
+      "team_id": 773,
+      "nickname": "Mikoto",
+      "steamid64": "76561198262015854",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3863,
+      "team_id": 773,
+      "nickname": "Ws`",
+      "steamid64": "76561198087108257",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3864,
+      "team_id": 773,
+      "nickname": "Mira",
+      "steamid64": "76561198216422051",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3865,
+      "team_id": 773,
+      "nickname": "kaori",
+      "steamid64": "76561198280485594",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3866,
+      "team_id": 774,
+      "nickname": "Kiritych~",
+      "steamid64": "76561198132365456",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3867,
+      "team_id": 774,
+      "nickname": "gpk~",
+      "steamid64": "76561198440678391",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3868,
+      "team_id": 774,
+      "nickname": "MieRo",
+      "steamid64": "76561198125830326",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3869,
+      "team_id": 774,
+      "nickname": "Save-",
+      "steamid64": "76561198278146366",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3870,
+      "team_id": 774,
+      "nickname": "Kataomi`",
+      "steamid64": "76561198157143864",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3871,
+      "team_id": 775,
+      "nickname": "skiter",
+      "steamid64": "76561198060324070",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3872,
+      "team_id": 775,
+      "nickname": "Malr1ne",
+      "steamid64": "76561198858721548",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3873,
+      "team_id": 775,
+      "nickname": "AMMAR_THE_F",
+      "steamid64": "76561198143985114",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3874,
+      "team_id": 775,
+      "nickname": "Cr1t-",
+      "steamid64": "76561197986172872",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3875,
+      "team_id": 775,
+      "nickname": "Sneyking",
+      "steamid64": "76561197970632344",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3876,
+      "team_id": 776,
+      "nickname": "JACKBOYS",
+      "steamid64": "76561198352830965",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3877,
+      "team_id": 776,
+      "nickname": "Emo",
+      "steamid64": "76561198162483696",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3878,
+      "team_id": 776,
+      "nickname": "zeal",
+      "steamid64": "76561198108032911",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3879,
+      "team_id": 776,
+      "nickname": "Jhocam",
+      "steamid64": "76561198113125024",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3880,
+      "team_id": 776,
+      "nickname": "NARMAN",
+      "steamid64": "76561198303350304",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3881,
+      "team_id": 777,
+      "nickname": "Yuma",
+      "steamid64": "76561198137469680",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3882,
+      "team_id": 777,
+      "nickname": "osito",
+      "steamid64": "76561198986960197",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3883,
+      "team_id": 777,
+      "nickname": "Wisper",
+      "steamid64": "76561198253187000",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3884,
+      "team_id": 777,
+      "nickname": "Thiolicor",
+      "steamid64": "76561198065311019",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3885,
+      "team_id": 777,
+      "nickname": "KingJungles",
+      "steamid64": "76561198041572126",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3886,
+      "team_id": 778,
+      "nickname": "m1CKe",
+      "steamid64": "76561198113227791",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3887,
+      "team_id": 778,
+      "nickname": "Nisha",
+      "steamid64": "76561198161624340",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3888,
+      "team_id": 778,
+      "nickname": "Ace ♠",
+      "steamid64": "76561198057856286",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3889,
+      "team_id": 778,
+      "nickname": "Boxi",
+      "steamid64": "76561198037756242",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3890,
+      "team_id": 778,
+      "nickname": "tOfu",
+      "steamid64": "76561197976763535",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3891,
+      "team_id": 779,
+      "nickname": "Natsumi",
+      "steamid64": "76561198315434494",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3892,
+      "team_id": 779,
+      "nickname": "Yopaj-",
+      "steamid64": "76561198284543628",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3893,
+      "team_id": 779,
+      "nickname": "TORONTOTOKYO",
+      "steamid64": "76561198392036633",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3894,
+      "team_id": 779,
+      "nickname": "TIMS",
+      "steamid64": "76561198115760109",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3895,
+      "team_id": 779,
+      "nickname": "skem",
+      "steamid64": "76561198060859959",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3896,
+      "team_id": 780,
+      "nickname": "Satanic",
+      "steamid64": "76561199004267995",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3897,
+      "team_id": 780,
+      "nickname": "No[o]ne-",
+      "steamid64": "76561198066839629",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3898,
+      "team_id": 780,
+      "nickname": "Noticed",
+      "steamid64": "76561198155374326",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3899,
+      "team_id": 780,
+      "nickname": "9Class",
+      "steamid64": "76561198124464930",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3900,
+      "team_id": 780,
+      "nickname": "Dukalis",
+      "steamid64": "76561198033666810",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3901,
+      "team_id": 781,
+      "nickname": "Yatoro",
+      "steamid64": "76561198281846390",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3902,
+      "team_id": 781,
+      "nickname": "Larl",
+      "steamid64": "76561198066570770",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3903,
+      "team_id": 781,
+      "nickname": "Collapse",
+      "steamid64": "76561198262479756",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3904,
+      "team_id": 781,
+      "nickname": "not me",
+      "steamid64": "76561198178497315",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3905,
+      "team_id": 781,
+      "nickname": "rue",
+      "steamid64": "76561198807831324",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3906,
+      "team_id": 782,
+      "nickname": "医者watson`",
+      "steamid64": "76561198131528630",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3907,
+      "team_id": 782,
+      "nickname": "CHIRA_JUNIOR",
+      "steamid64": "76561198272702702",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3908,
+      "team_id": 782,
+      "nickname": "DM",
+      "steamid64": "76561198016617237",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3909,
+      "team_id": 782,
+      "nickname": "Saksa",
+      "steamid64": "76561198064001473",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3910,
+      "team_id": 782,
+      "nickname": "Maladych",
+      "steamid64": "76561198054083399",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3911,
+      "team_id": 783,
+      "nickname": "Pure",
+      "steamid64": "76561198292121258",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3912,
+      "team_id": 783,
+      "nickname": "bzm",
+      "steamid64": "76561198053884305",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3913,
+      "team_id": 783,
+      "nickname": "33",
+      "steamid64": "76561198046964005",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3914,
+      "team_id": 783,
+      "nickname": "Ari",
+      "steamid64": "76561198306678091",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3915,
+      "team_id": 783,
+      "nickname": "Whitemon",
+      "steamid64": "76561198097094819",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3916,
+      "team_id": 784,
+      "nickname": "Ame",
+      "steamid64": "76561198859019881",
+      "position": 1,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3917,
+      "team_id": 784,
+      "nickname": "NothingToSay",
+      "steamid64": "76561198134243802",
+      "position": 2,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3918,
+      "team_id": 784,
+      "nickname": "Xxs",
+      "steamid64": "76561198090224486",
+      "position": 3,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3919,
+      "team_id": 784,
+      "nickname": "fy",
+      "steamid64": "76561198061960890",
+      "position": 4,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
+    },
+    {
+      "id": 3920,
+      "team_id": 784,
+      "nickname": "xNova",
+      "steamid64": "76561198054561825",
+      "position": 5,
+      "created_at": "2026-06-25T06:39:45.306227Z",
+      "updated_at": "2026-06-25T06:39:45.306227Z"
     }
   ]
 }
