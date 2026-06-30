@@ -15,6 +15,13 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Toaster, toast } from "sonner";
 import {
   ArrowLeft,
@@ -26,8 +33,17 @@ import {
   AlertTriangle,
   XCircle,
   HelpCircle,
+  Pencil,
   type LucideIcon,
 } from "lucide-react";
+
+type TournamentTier = "顶级赛事" | "预选赛" | "其他";
+const TIER_OPTIONS: TournamentTier[] = ["顶级赛事", "预选赛", "其他"];
+const tierBadgeClass: Record<TournamentTier, string> = {
+  "顶级赛事": "bg-amber-100 text-amber-700 border-amber-200",
+  "预选赛": "bg-sky-100 text-sky-700 border-sky-200",
+  "其他": "bg-slate-100 text-slate-600 border-slate-200",
+};
 
 interface Player {
   id: number;
@@ -60,6 +76,9 @@ export default function TournamentPage() {
   const params = useParams();
   const tournamentId = params.id as string;
   const [tournamentName, setTournamentName] = useState("");
+  const [eventTier, setEventTier] = useState<TournamentTier>("其他");
+  const [tierLocked, setTierLocked] = useState(false);
+  const [leagueId, setLeagueId] = useState("");
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [openCreateTeam, setOpenCreateTeam] = useState(false);
@@ -67,6 +86,12 @@ export default function TournamentPage() {
   const [teamShortName, setTeamShortName] = useState("");
   const [teamExternalId, setTeamExternalId] = useState("");
   const [creating, setCreating] = useState(false);
+
+  // 编辑联赛（重命名 + 标签）
+  const [openEdit, setOpenEdit] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editTier, setEditTier] = useState<TournamentTier>("其他");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchTeams = useCallback(async () => {
     try {
@@ -78,12 +103,47 @@ export default function TournamentPage() {
       const tourData = await tourRes.json();
       setTeams(teamsData);
       setTournamentName(tourData.name || "");
+      setEventTier((tourData.event_tier as TournamentTier) || "其他");
+      setTierLocked(Boolean(tourData.tier_locked));
+      setLeagueId(tourData.league_id || "");
     } catch {
       toast.error("加载战队列表失败");
     } finally {
       setLoading(false);
     }
   }, [tournamentId]);
+
+  const openEditDialog = () => {
+    setEditName(tournamentName);
+    setEditTier(eventTier);
+    setOpenEdit(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editName.trim()) {
+      toast.error("联赛名不能为空");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const res = await fetch(`/api/tournaments/${tournamentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: editName.trim(), event_tier: editTier }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "保存失败");
+      }
+      toast.success("已保存");
+      setOpenEdit(false);
+      await fetchTeams();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "保存失败");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
 
   useEffect(() => {
     fetchTeams();
@@ -163,14 +223,32 @@ export default function TournamentPage() {
               <Shield className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">{tournamentName || "比赛详情"}</h1>
-              <p className="text-sm text-slate-500 mt-0.5">{teams.length} 支战队</p>
+              <div className="flex items-center gap-2">
+                <h1 className="text-2xl font-bold text-slate-900">{tournamentName || "比赛详情"}</h1>
+                {!loading && (
+                  <span
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${tierBadgeClass[eventTier]}`}
+                  >
+                    {eventTier}
+                    {tierLocked && <span className="ml-1 opacity-60">·手动</span>}
+                  </span>
+                )}
+              </div>
+              <p className="text-sm text-slate-500 mt-0.5">
+                {teams.length} 支战队{leagueId ? ` · league_id ${leagueId}` : ""}
+              </p>
             </div>
           </div>
-          <Button onClick={() => setOpenCreateTeam(true)} className="gap-2">
-            <Plus className="w-4 h-4" />
-            添加战队
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={openEditDialog} className="gap-2">
+              <Pencil className="w-4 h-4" />
+              编辑联赛
+            </Button>
+            <Button onClick={() => setOpenCreateTeam(true)} className="gap-2">
+              <Plus className="w-4 h-4" />
+              添加战队
+            </Button>
+          </div>
         </div>
 
         {/* 战队列表 */}
@@ -252,6 +330,52 @@ export default function TournamentPage() {
           </div>
         )}
       </div>
+
+      {/* 编辑联赛弹窗 */}
+      <Dialog open={openEdit} onOpenChange={setOpenEdit}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>编辑联赛</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="edit_name">联赛名</Label>
+              <Input
+                id="edit_name"
+                placeholder="联赛名称"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>赛事标签</Label>
+              <Select value={editTier} onValueChange={(v: TournamentTier) => setEditTier(v)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TIER_OPTIONS.map((t) => (
+                    <SelectItem key={t} value={t}>
+                      {t}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500">
+                手动保存后，该联赛的标签将被锁定，不再按联赛名自动分类。
+              </p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setOpenEdit(false)}>
+              取消
+            </Button>
+            <Button onClick={handleSaveEdit} disabled={savingEdit}>
+              {savingEdit ? "保存中..." : "保存"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 添加战队弹窗 */}
       <Dialog open={openCreateTeam} onOpenChange={setOpenCreateTeam}>

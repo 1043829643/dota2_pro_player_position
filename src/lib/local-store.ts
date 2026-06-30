@@ -10,6 +10,8 @@ export interface TournamentRecord {
   name: string;
   league_id: string;
   event_tier?: TournamentTier;
+  // 为 true 时表示标签由用户手动设定，不再被按联赛名自动分类覆盖。
+  tier_locked?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -168,14 +170,25 @@ export function getTournamentById(id: number) {
 
 export function updateTournamentById(
   id: number,
-  payload: { name?: string; league_id?: string }
+  payload: {
+    name?: string;
+    league_id?: string;
+    event_tier?: TournamentTier;
+  }
 ) {
   const db = loadData();
   const target = db.tournaments.find((t) => t.id === id);
   if (!target) return null;
   if (payload.name !== undefined) target.name = payload.name;
   if (payload.league_id !== undefined) target.league_id = payload.league_id;
-  target.event_tier = classifyTournamentTier(target.name);
+  if (payload.event_tier !== undefined) {
+    // 手动设定标签：记录并锁定，后续不再被自动分类覆盖。
+    target.event_tier = payload.event_tier;
+    target.tier_locked = true;
+  } else if (!target.tier_locked) {
+    // 未锁定时才按（可能变化的）联赛名重新分类。
+    target.event_tier = classifyTournamentTier(target.name);
+  }
   target.updated_at = new Date().toISOString();
   saveData(db);
   return target;
@@ -772,6 +785,8 @@ function loadData(): LocalStoreData {
   }
   let migrated = false;
   for (const tournament of data.tournaments) {
+    // 用户手动锁定过标签的联赛不再自动重判。
+    if (tournament.tier_locked) continue;
     const expected = classifyTournamentTier(tournament.name);
     if (tournament.event_tier !== expected) {
       tournament.event_tier = expected;
