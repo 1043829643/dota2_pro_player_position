@@ -1,6 +1,8 @@
 import { createServer } from 'http';
 import { parse } from 'url';
 import next from 'next';
+import { hydrateLocalStore } from './lib/local-store';
+import { hydrateManualRecords } from './lib/manual-records';
 
 const dev = process.env.COZE_PROJECT_ENV !== 'PROD';
 const hostname = process.env.HOSTNAME || 'localhost';
@@ -10,7 +12,12 @@ const port = parseInt(process.env.PORT || '5000', 10);
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
-app.prepare().then(() => {
+// 启动时先从远端 blob 恢复本地数据（未配置 Supabase 时为无操作）。
+async function bootstrapPersistence() {
+  await Promise.all([hydrateLocalStore(), hydrateManualRecords()]);
+}
+
+bootstrapPersistence().finally(() => app.prepare().then(() => {
   const server = createServer(async (req, res) => {
     try {
       const parsedUrl = parse(req.url!, true);
@@ -32,4 +39,4 @@ app.prepare().then(() => {
       }`,
     );
   });
-});
+}));

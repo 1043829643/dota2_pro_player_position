@@ -1,6 +1,9 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { isBlobStoreEnabled, loadBlob, saveBlob } from "./blob-store";
+
+const BLOB_KEY = "local_store";
 
 export interface TournamentRecord {
   id: number;
@@ -784,6 +787,45 @@ function loadData(): LocalStoreData {
 function saveData(data: LocalStoreData) {
   ensureDataDir();
   fs.writeFileSync(STORE_PATH, JSON.stringify(data, null, 2), "utf-8");
+  schedulePush(data);
+}
+
+// 写操作后把整份状态回写到远端 blob（防抖，避免高频写放大）。
+let pushTimer: NodeJS.Timeout | null = null;
+let pendingPush: LocalStoreData | null = null;
+function schedulePush(data: LocalStoreData) {
+  if (!isBlobStoreEnabled()) return;
+  pendingPush = data;
+  if (pushTimer) clearTimeout(pushTimer);
+  pushTimer = setTimeout(() => {
+    const snapshot = pendingPush;
+    pushTimer = null;
+    pendingPush = null;
+    if (snapshot) void saveBlob(BLOB_KEY, snapshot);
+  }, 400);
+}
+
+// 启动时从远端 blob 拉取并落到本地文件；远端为空则用本地（种子）数据初始化远端。
+let hydrated = false;
+export async function hydrateLocalStore(): Promise<void> {
+  if (hydrated) return;
+  hydrated = true;
+  if (!isBlobStoreEnabled()) return;
+  try {
+    const remote = await loadBlob<LocalStoreData>(BLOB_KEY);
+    if (remote && Array.isArray(remote.tournaments)) {
+      ensureDataDir();
+      fs.writeFileSync(STORE_PATH, JSON.stringify(remote, null, 2), "utf-8");
+      console.log("[local-store] 已从远端 blob 恢复数据");
+    } else {
+      ensureInitialized();
+      const seed = JSON.parse(fs.readFileSync(STORE_PATH, "utf-8")) as LocalStoreData;
+      await saveBlob(BLOB_KEY, seed);
+      console.log("[local-store] 远端为空，已用本地种子数据初始化远端 blob");
+    }
+  } catch (e) {
+    console.error("[local-store] hydrate 失败，回退本地文件:", e);
+  }
 }
 
 function ensureInitialized() {
