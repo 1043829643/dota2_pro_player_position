@@ -666,11 +666,18 @@ function buildLineups(
     const assigned: Record<number, BuiltPlayer> = {};
     const usedPositions = new Set<number>();
 
-    for (const p of top5) {
-      const hint = positionHints.get(p.steamid);
-      if (hint && !usedPositions.has(hint)) {
-        assigned[hint] = p;
-        usedPositions.add(hint);
+    // 兜底导入（来自 dota2_analysis.players，带 slot 信号）要求“只用这届联赛计算”：
+    // 此时完全按本届人均补刀排序判位，不引入跨联赛历史 hint 覆盖。
+    // 主表路径（无 slot 信号）仍沿用历史 hint 优先的既有行为。
+    const inLeagueOnly = top5.some((p) => p.avgSlotPosition != null);
+
+    if (!inLeagueOnly) {
+      for (const p of top5) {
+        const hint = positionHints.get(p.steamid);
+        if (hint && !usedPositions.has(hint)) {
+          assigned[hint] = p;
+          usedPositions.add(hint);
+        }
       }
     }
 

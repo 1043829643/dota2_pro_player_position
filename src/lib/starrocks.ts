@@ -142,7 +142,9 @@ export async function fetchLeaguePlayerRows(
     if (positionRows.length > 0) return positionRows;
 
     // 兜底：部分新/公开预选赛尚未写入 dwd_match_player_positions，
-    // 但 dota2_analysis.players 已有逐场选手。此时使用 slot 推断临时位置。
+    // 但 dota2_analysis.players 已有逐场选手，且 player_intervals2 里有逐分钟补刀/经济。
+    // 这里取每场 10 分钟(time=600)的真实补刀 lh 作为分路信号（与标准算法的 hits_5m 同义），
+    // 交给 buildLineups 按“人均补刀从高到低 = 1→5 号位”重建，纯用本届联赛数据判位。
     const [analysisRows] = await conn.query(
       `SELECT
          COALESCE(
@@ -153,13 +155,16 @@ export async function fetchLeaguePlayerRows(
              WHEN p.team = 3 THEN CONCAT('Team ', mi.dire_team_id)
            END
          ) AS team_name,
-         p.steamid,
+         CAST(p.steamid AS CHAR) AS steamid,
          COALESCE(NULLIF(pp.name, ''), NULLIF(p.persona, ''), CAST(p.steamid AS CHAR)) AS name,
-         p.slot
+         p.slot,
+         CAST(pi.lh AS SIGNED) AS hits_5m
        FROM dwd_match_overview mo
        JOIN dota2_analysis.players p ON CAST(p.match_id AS BIGINT) = mo.match_id
        LEFT JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
        LEFT JOIN dota2_analysis.pro_players pp ON CAST(pp.steamid AS BIGINT) = p.steamid
+       LEFT JOIN dota2_analysis.player_intervals2 pi
+         ON pi.match_id = p.match_id AND pi.slot = p.slot AND pi.time = 600
        WHERE mo.league_id = ?
          AND p.steamid IS NOT NULL`,
       [leagueId]
@@ -168,7 +173,7 @@ export async function fetchLeaguePlayerRows(
       team_name: r.team_name == null ? null : String(r.team_name),
       steamid: r.steamid == null ? null : String(r.steamid),
       name: r.name == null ? null : String(r.name),
-      hits_5m: null,
+      hits_5m: r.hits_5m == null ? null : Number(r.hits_5m),
       slot: r.slot == null ? null : Number(r.slot),
     }));
   });
