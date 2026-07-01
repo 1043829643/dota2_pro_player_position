@@ -487,6 +487,7 @@ export interface RawPlayerRow {
   steamid: string | null;
   name: string | null;
   hits_5m: number | null;
+  slot?: number | null;
 }
 
 export interface RawTeamRow {
@@ -508,6 +509,7 @@ interface BuiltPlayer {
   nickname: string;
   count: number;
   avgHits: number;
+  avgSlotPosition: number | null;
 }
 
 interface BuiltTeam {
@@ -598,7 +600,7 @@ function buildLineups(
 ): { teams: BuiltTeam[]; skippedIncomplete: number } {
   const stats = new Map<
     string,
-    { count: number; hits: number[]; names: Map<string, number> }
+    { count: number; hits: number[]; slotPositions: number[]; names: Map<string, number> }
   >();
   const teamNameByKey = new Map<string, string>();
 
@@ -612,10 +614,15 @@ function buildLineups(
     const st = stats.get(key) ?? {
       count: 0,
       hits: [] as number[],
+      slotPositions: [] as number[],
       names: new Map<string, number>(),
     };
     st.count += 1;
     if (row.hits_5m != null && !Number.isNaN(row.hits_5m)) st.hits.push(row.hits_5m);
+    if (row.slot != null && !Number.isNaN(row.slot)) {
+      // Dota slot: 天辉 0-4 / 夜魇 5-9。这里仅作为缺少分路指标时的稳定兜底。
+      st.slotPositions.push((Number(row.slot) % 5) + 1);
+    }
     if (row.name) st.names.set(row.name, (st.names.get(row.name) ?? 0) + 1);
     stats.set(key, st);
   }
@@ -627,6 +634,9 @@ function buildLineups(
     const avgHits = st.hits.length
       ? st.hits.reduce((a, b) => a + b, 0) / st.hits.length
       : 0;
+    const avgSlotPosition = st.slotPositions.length
+      ? st.slotPositions.reduce((a, b) => a + b, 0) / st.slotPositions.length
+      : null;
     let bestName = sid;
     let bestNameCount = -1;
     for (const [n, c] of st.names.entries()) {
@@ -636,7 +646,7 @@ function buildLineups(
       }
     }
     const list = teamMap.get(teamName) ?? [];
-    list.push({ steamid: sid, nickname: bestName, count: st.count, avgHits });
+    list.push({ steamid: sid, nickname: bestName, count: st.count, avgHits, avgSlotPosition });
     teamMap.set(teamName, list);
   }
 
@@ -666,7 +676,12 @@ function buildLineups(
 
     const remainingPlayers = top5
       .filter((p) => !Object.values(assigned).includes(p))
-      .sort((a, b) => b.avgHits - a.avgHits);
+      .sort((a, b) => {
+        if (a.avgHits !== b.avgHits) return b.avgHits - a.avgHits;
+        const aSlot = a.avgSlotPosition ?? 99;
+        const bSlot = b.avgSlotPosition ?? 99;
+        return aSlot - bSlot;
+      });
     const remainingPositions = [1, 2, 3, 4, 5].filter((pos) => !usedPositions.has(pos));
     remainingPositions.forEach((pos, idx) => {
       if (remainingPlayers[idx]) assigned[pos] = remainingPlayers[idx];

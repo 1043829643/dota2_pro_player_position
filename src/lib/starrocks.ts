@@ -25,6 +25,7 @@ export interface LeaguePlayerRow {
   steamid: string | null;
   name: string | null;
   hits_5m: number | null;
+  slot?: number | null;
 }
 
 export interface LeagueTeamRow {
@@ -126,11 +127,44 @@ export async function fetchLeaguePlayerRows(
          AND mp.steamid IS NOT NULL AND mp.steamid <> ''`,
       [leagueId]
     );
-    return (rows as Array<Record<string, unknown>>).map((r) => ({
+    const positionRows = (rows as Array<Record<string, unknown>>).map((r) => ({
       team_name: r.team_name == null ? null : String(r.team_name),
       steamid: r.steamid == null ? null : String(r.steamid),
       name: r.name == null ? null : String(r.name),
       hits_5m: r.hits_5m == null ? null : Number(r.hits_5m),
+      slot: null,
+    }));
+    if (positionRows.length > 0) return positionRows;
+
+    // 兜底：部分新/公开预选赛尚未写入 dwd_match_player_positions，
+    // 但 dota2_analysis.players 已有逐场选手。此时使用 slot 推断临时位置。
+    const [analysisRows] = await conn.query(
+      `SELECT
+         COALESCE(
+           NULLIF(CASE WHEN p.team = 2 THEN mo.team_name_1 WHEN p.team = 3 THEN mo.team_name_2 END, ''),
+           NULLIF(CASE WHEN p.team = 2 THEN mi.radiant_team_tag WHEN p.team = 3 THEN mi.dire_team_tag END, ''),
+           CASE
+             WHEN p.team = 2 THEN CONCAT('Team ', mi.radiant_team_id)
+             WHEN p.team = 3 THEN CONCAT('Team ', mi.dire_team_id)
+           END
+         ) AS team_name,
+         p.steamid,
+         COALESCE(NULLIF(pp.name, ''), NULLIF(p.persona, ''), CAST(p.steamid AS CHAR)) AS name,
+         p.slot
+       FROM dwd_match_overview mo
+       JOIN dota2_analysis.players p ON CAST(p.match_id AS BIGINT) = mo.match_id
+       LEFT JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
+       LEFT JOIN dota2_analysis.pro_players pp ON CAST(pp.steamid AS BIGINT) = p.steamid
+       WHERE mo.league_id = ?
+         AND p.steamid IS NOT NULL`,
+      [leagueId]
+    );
+    return (analysisRows as Array<Record<string, unknown>>).map((r) => ({
+      team_name: r.team_name == null ? null : String(r.team_name),
+      steamid: r.steamid == null ? null : String(r.steamid),
+      name: r.name == null ? null : String(r.name),
+      hits_5m: null,
+      slot: r.slot == null ? null : Number(r.slot),
     }));
   });
 }
@@ -171,7 +205,20 @@ export async function fetchLeagueName(leagueId: string): Promise<string | null> 
       [leagueId]
     );
     const list = rows as Array<Record<string, unknown>>;
-    if (list.length === 0 || list[0].league_name == null) return null;
-    return String(list[0].league_name);
+    const dwdName = list.length > 0 && list[0].league_name != null
+      ? String(list[0].league_name).trim()
+      : "";
+    if (dwdName) return dwdName;
+
+    const [fallbackRows] = await conn.query(
+      `SELECT MAX(league_name) AS league_name
+       FROM dota2_analysis.pro_match_list_2
+       WHERE league_id = ?`,
+      [leagueId]
+    );
+    const fallback = fallbackRows as Array<Record<string, unknown>>;
+    if (fallback.length === 0 || fallback[0].league_name == null) return null;
+    const fallbackName = String(fallback[0].league_name).trim();
+    return fallbackName || null;
   });
 }
