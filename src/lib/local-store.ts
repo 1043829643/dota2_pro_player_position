@@ -489,11 +489,17 @@ export interface RawPlayerRow {
   hits_5m: number | null;
 }
 
+export interface RawTeamRow {
+  team_name: string;
+  match_count: number;
+}
+
 export interface LeagueImportResult {
   league_id: string;
   league_name: string;
   tournament_id: number;
   teams_imported: number;
+  empty_teams_imported?: number;
   skipped_incomplete_teams: number;
 }
 
@@ -514,7 +520,20 @@ interface BuiltTeam {
 // 返回当前本地库已存在的 league_id 集合
 export function getExistingLeagueIds(): Set<string> {
   const db = loadData();
-  return new Set(db.tournaments.map((t) => String(t.league_id)));
+  const teamCountByTournament = new Map<number, number>();
+  for (const team of db.teams) {
+    teamCountByTournament.set(
+      team.tournament_id,
+      (teamCountByTournament.get(team.tournament_id) ?? 0) + 1
+    );
+  }
+  // 如果联赛记录存在但没有任何队伍，说明之前可能只是空导入；
+  // 联赛库里仍允许再次勾选导入，用 match_overview 队伍兜底补齐。
+  return new Set(
+    db.tournaments
+      .filter((t) => (teamCountByTournament.get(t.id) ?? 0) > 0)
+      .map((t) => String(t.league_id))
+  );
 }
 
 // 基于已有数据，统计每个 steamid 最常见的位置，作为重建时的分路提示
@@ -674,7 +693,8 @@ function buildLineups(
 export function importLeagueFromRawRows(
   leagueId: string,
   leagueName: string,
-  rows: RawPlayerRow[]
+  rows: RawPlayerRow[],
+  fallbackTeams: RawTeamRow[] = []
 ): LeagueImportResult {
   const db = loadData();
   const now = new Date().toISOString();
@@ -698,10 +718,13 @@ export function importLeagueFromRawRows(
     db.tournaments.push(tournament);
   } else {
     tournament.name = leagueName;
-    tournament.event_tier = classifyTournamentTier(leagueName);
+    if (!tournament.tier_locked) {
+      tournament.event_tier = classifyTournamentTier(leagueName);
+    }
     tournament.updated_at = now;
   }
 
+  const builtTeamNames = new Set(builtTeams.map((bt) => normalizeTeamName(bt.team_name)));
   for (const bt of builtTeams) {
     let team = db.teams.find(
       (t) => t.tournament_id === tournament!.id && t.name === bt.team_name
@@ -740,12 +763,36 @@ export function importLeagueFromRawRows(
     }
   }
 
+  // 如果 player_positions 没有明细，仍用 match_overview 的队伍名创建空阵容队伍。
+  // 这样导入后战队阵容管理器能先看到队伍，再手工补选手/等待后续数据补齐。
+  let emptyTeamsImported = 0;
+  for (const rawTeam of fallbackTeams) {
+    const teamName = normalizeTeamName(rawTeam.team_name);
+    if (!teamName || builtTeamNames.has(teamName)) continue;
+    const existing = db.teams.find(
+      (t) => t.tournament_id === tournament!.id && normalizeTeamName(t.name) === teamName
+    );
+    if (existing) continue;
+    db.teams.push({
+      id: nextId(db.teams.map((t) => t.id)),
+      tournament_id: tournament.id,
+      name: teamName,
+      short_name: teamTagFromName(teamName) || null,
+      team_id: syntheticTeamId(leagueId, teamName),
+      status: "缺失",
+      created_at: now,
+      updated_at: now,
+    });
+    emptyTeamsImported += 1;
+  }
+
   saveData(db);
   return {
     league_id: String(leagueId),
     league_name: leagueName,
     tournament_id: tournament.id,
-    teams_imported: builtTeams.length,
+    teams_imported: builtTeams.length + emptyTeamsImported,
+    empty_teams_imported: emptyTeamsImported,
     skipped_incomplete_teams: skippedIncomplete,
   };
 }

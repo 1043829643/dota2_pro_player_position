@@ -27,6 +27,11 @@ export interface LeaguePlayerRow {
   hits_5m: number | null;
 }
 
+export interface LeagueTeamRow {
+  team_name: string;
+  match_count: number;
+}
+
 async function withConnection<T>(
   fn: (conn: mysql.Connection) => Promise<T>
 ): Promise<T> {
@@ -127,6 +132,32 @@ export async function fetchLeaguePlayerRows(
       name: r.name == null ? null : String(r.name),
       hits_5m: r.hits_5m == null ? null : Number(r.hits_5m),
     }));
+  });
+}
+
+// 拉取某联赛在比赛总览表里的队伍列表。
+// 有些新联赛只有 match_overview 队伍信息，尚未落入 player_positions；
+// 此时导入时先创建空阵容队伍，方便后续手工维护。
+export async function fetchLeagueTeams(leagueId: string): Promise<LeagueTeamRow[]> {
+  return withConnection(async (conn) => {
+    const [rows] = await conn.query(
+      `SELECT team_name, COUNT(*) AS match_count FROM (
+         SELECT team_name_1 AS team_name
+         FROM dwd_match_overview
+         WHERE league_id = ? AND team_name_1 IS NOT NULL AND team_name_1 <> ''
+         UNION ALL
+         SELECT team_name_2 AS team_name
+         FROM dwd_match_overview
+         WHERE league_id = ? AND team_name_2 IS NOT NULL AND team_name_2 <> ''
+       ) t
+       GROUP BY team_name
+       ORDER BY match_count DESC, team_name`,
+      [leagueId, leagueId]
+    );
+    return (rows as Array<Record<string, unknown>>).map((r) => ({
+      team_name: String(r.team_name ?? "").trim(),
+      match_count: Number(r.match_count ?? 0),
+    })).filter((r) => r.team_name);
   });
 }
 
