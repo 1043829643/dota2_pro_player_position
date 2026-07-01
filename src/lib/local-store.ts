@@ -495,6 +495,12 @@ export interface RawTeamRow {
   match_count: number;
 }
 
+export interface MissingPositionTeam {
+  team_name: string;
+  // 缺少补刀数据、无法判位的选手（昵称或 steamid）
+  players_without_hits: string[];
+}
+
 export interface LeagueImportResult {
   league_id: string;
   league_name: string;
@@ -502,6 +508,8 @@ export interface LeagueImportResult {
   teams_imported: number;
   empty_teams_imported?: number;
   skipped_incomplete_teams: number;
+  // 有完整 5 人但缺少补刀数据、无法计算分路的队伍（不编造位置，明确列出缺什么）
+  missing_position_teams?: MissingPositionTeam[];
 }
 
 interface BuiltPlayer {
@@ -509,7 +517,7 @@ interface BuiltPlayer {
   nickname: string;
   count: number;
   avgHits: number;
-  avgSlotPosition: number | null;
+  hasHits: boolean;
 }
 
 interface BuiltTeam {
@@ -568,14 +576,21 @@ function syntheticTeamId(leagueId: string, teamName: string): string {
   return BigInt(`0x${digest}`).toString();
 }
 
-// 启发式重建：每队取出场最多的 5 人，先按分路提示分配，剩余按补刀均值排序填入空位
+// 重建阵容：每队取出场最多的 5 人，按“本届联赛人均补刀”从高到低 = 1→5 号位。
+// 补刀(hits_5m 或 player_intervals2 真实 lh)是唯一的判位依据；slot 只是单场槽位、
+// 与分路无关，不参与计算。若某队有 5 人但缺少补刀数据，则不编造位置，
+// 而是列入 missingPositionTeams 明确指出缺谁的数据。
 function buildLineups(
   rows: RawPlayerRow[],
   leagueId: string
-): { teams: BuiltTeam[]; skippedIncomplete: number } {
+): {
+  teams: BuiltTeam[];
+  skippedIncomplete: number;
+  missingPositionTeams: MissingPositionTeam[];
+} {
   const stats = new Map<
     string,
-    { count: number; hits: number[]; slotPositions: number[]; names: Map<string, number> }
+    { count: number; hits: number[]; names: Map<string, number> }
   >();
   const teamNameByKey = new Map<string, string>();
 
@@ -589,15 +604,10 @@ function buildLineups(
     const st = stats.get(key) ?? {
       count: 0,
       hits: [] as number[],
-      slotPositions: [] as number[],
       names: new Map<string, number>(),
     };
     st.count += 1;
     if (row.hits_5m != null && !Number.isNaN(row.hits_5m)) st.hits.push(row.hits_5m);
-    if (row.slot != null && !Number.isNaN(row.slot)) {
-      // Dota slot: 天辉 0-4 / 夜魇 5-9。这里仅作为缺少分路指标时的稳定兜底。
-      st.slotPositions.push((Number(row.slot) % 5) + 1);
-    }
     if (row.name) st.names.set(row.name, (st.names.get(row.name) ?? 0) + 1);
     stats.set(key, st);
   }
@@ -609,9 +619,6 @@ function buildLineups(
     const avgHits = st.hits.length
       ? st.hits.reduce((a, b) => a + b, 0) / st.hits.length
       : 0;
-    const avgSlotPosition = st.slotPositions.length
-      ? st.slotPositions.reduce((a, b) => a + b, 0) / st.slotPositions.length
-      : null;
     let bestName = sid;
     let bestNameCount = -1;
     for (const [n, c] of st.names.entries()) {
@@ -621,12 +628,19 @@ function buildLineups(
       }
     }
     const list = teamMap.get(teamName) ?? [];
-    list.push({ steamid: sid, nickname: bestName, count: st.count, avgHits, avgSlotPosition });
+    list.push({
+      steamid: sid,
+      nickname: bestName,
+      count: st.count,
+      avgHits,
+      hasHits: st.hits.length > 0,
+    });
     teamMap.set(teamName, list);
   }
 
   const teams: BuiltTeam[] = [];
   let skippedIncomplete = 0;
+  const missingPositionTeams: MissingPositionTeam[] = [];
 
   for (const [teamName, players] of teamMap.entries()) {
     const top5 = players
@@ -638,26 +652,22 @@ function buildLineups(
       continue;
     }
 
-    const assigned: Record<number, BuiltPlayer> = {};
-
-    // 位置完全由“本届联赛”数据决定，不引入任何跨联赛历史：
-    // 按人均 5 分钟补刀(hits_5m) 从高到低 = 1→5 号位
-    // （补刀最多 = 核心 1 号位，最少 = 辅助 5 号位）；
-    // 若该届缺少补刀指标（如尚未写入主表），则用对局内 slot 作为稳定兜底。
-    const ranked = top5.slice().sort((a, b) => {
-      if (a.avgHits !== b.avgHits) return b.avgHits - a.avgHits;
-      const aSlot = a.avgSlotPosition ?? 99;
-      const bSlot = b.avgSlotPosition ?? 99;
-      return aSlot - bSlot;
-    });
-    [1, 2, 3, 4, 5].forEach((pos, idx) => {
-      if (ranked[idx]) assigned[pos] = ranked[idx];
-    });
-
-    if ([1, 2, 3, 4, 5].some((pos) => !assigned[pos])) {
-      skippedIncomplete += 1;
+    // 只用补刀判位：任意一名选手没有补刀数据就无法可靠排位，不编造。
+    const withoutHits = top5.filter((p) => !p.hasHits);
+    if (withoutHits.length > 0) {
+      missingPositionTeams.push({
+        team_name: teamName,
+        players_without_hits: withoutHits.map((p) => p.nickname),
+      });
       continue;
     }
+
+    // 人均补刀从高到低 = 1→5 号位（补刀最多=核心1号位，最少=辅助5号位）。
+    const ranked = top5.slice().sort((a, b) => b.avgHits - a.avgHits);
+    const assigned: Record<number, BuiltPlayer> = {};
+    [1, 2, 3, 4, 5].forEach((pos, idx) => {
+      assigned[pos] = ranked[idx];
+    });
 
     teams.push({
       team_name: teamName,
@@ -668,7 +678,7 @@ function buildLineups(
   }
 
   teams.sort((a, b) => a.team_name.localeCompare(b.team_name));
-  return { teams, skippedIncomplete };
+  return { teams, skippedIncomplete, missingPositionTeams };
 }
 
 // 将重建出的联赛阵容合并进本地库（按 league_id 去重，按 战队名 去重并整队替换选手）
@@ -680,7 +690,8 @@ export function importLeagueFromRawRows(
 ): LeagueImportResult {
   const db = loadData();
   const now = new Date().toISOString();
-  const { teams: builtTeams, skippedIncomplete } = buildLineups(rows, leagueId);
+  const { teams: builtTeams, skippedIncomplete, missingPositionTeams } =
+    buildLineups(rows, leagueId);
 
   let tournament = db.tournaments.find((t) => String(t.league_id) === String(leagueId));
   if (!tournament) {
@@ -702,6 +713,35 @@ export function importLeagueFromRawRows(
   }
 
   const builtTeamNames = new Set(builtTeams.map((bt) => normalizeTeamName(bt.team_name)));
+
+  // 缺少补刀数据、无法判位的队伍：建成“缺失”状态占位，不写入编造的位置。
+  for (const mt of missingPositionTeams) {
+    const teamName = normalizeTeamName(mt.team_name);
+    if (!teamName) continue;
+    builtTeamNames.add(teamName);
+    let team = db.teams.find(
+      (t) => t.tournament_id === tournament!.id && normalizeTeamName(t.name) === teamName
+    );
+    if (!team) {
+      team = {
+        id: nextId(db.teams.map((t) => t.id)),
+        tournament_id: tournament.id,
+        name: teamName,
+        short_name: teamTagFromName(teamName) || null,
+        team_id: syntheticTeamId(leagueId, teamName),
+        status: "缺失",
+        created_at: now,
+        updated_at: now,
+      };
+      db.teams.push(team);
+    } else {
+      team.status = "缺失";
+      team.updated_at = now;
+    }
+    // 清掉旧的（可能是之前 slot 编造出来的）位置，避免残留错误数据。
+    db.players = db.players.filter((p) => p.team_id !== team!.id);
+  }
+
   for (const bt of builtTeams) {
     let team = db.teams.find(
       (t) => t.tournament_id === tournament!.id && t.name === bt.team_name
@@ -771,6 +811,7 @@ export function importLeagueFromRawRows(
     teams_imported: builtTeams.length + emptyTeamsImported,
     empty_teams_imported: emptyTeamsImported,
     skipped_incomplete_teams: skippedIncomplete,
+    missing_position_teams: missingPositionTeams,
   };
 }
 

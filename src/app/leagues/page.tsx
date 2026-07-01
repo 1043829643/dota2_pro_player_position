@@ -186,6 +186,24 @@ export default function LeaguesPage() {
       } else {
         toast.success(`成功导入 ${leaguesCount} 个联赛 / ${teams} 支战队`);
       }
+      // 汇总缺少补刀数据、无法计算分路的队伍，明确提示缺什么
+      const missingTeams = (data.results ?? []).flatMap(
+        (r: {
+          league_name?: string;
+          missing_position_teams?: { team_name: string; players_without_hits: string[] }[];
+        }) =>
+          (r.missing_position_teams ?? []).map(
+            (m) => `${m.team_name}（缺 ${m.players_without_hits.join("、")} 的补刀数据）`
+          )
+      );
+      if (missingTeams.length > 0) {
+        toast.warning(
+          `${missingTeams.length} 支战队缺少补刀数据、无法计算分路，已标记为「缺失」：` +
+            missingTeams.slice(0, 5).join("；") +
+            (missingTeams.length > 5 ? " 等" : ""),
+          { duration: 10000 }
+        );
+      }
       setSelected(new Set());
       await fetchCatalog();
     } catch (e) {
