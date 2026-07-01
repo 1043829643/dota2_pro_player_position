@@ -75,7 +75,7 @@ interface CsvRow {
   pos5_nickname: string;
 }
 
-export type TournamentTier = "顶级赛事" | "预选赛" | "其他";
+export type TournamentTier = string;
 
 const TOP_TIER_TOURNAMENTS = new Set([
   "BLAST SLAM VII",
@@ -1072,5 +1072,6 @@ function classifyTournamentTier(name: string): TournamentTier {
 function tierOrder(tier: TournamentTier) {
   if (tier === "顶级赛事") return 0;
   if (tier === "预选赛") return 1;
-  return 2;
+  if (tier === "其他") return 2;
+  return 3;
 }

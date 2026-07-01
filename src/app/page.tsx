@@ -41,7 +41,7 @@ interface Tournament {
   id: number;
   name: string;
   league_id: string;
-  event_tier: "顶级赛事" | "预选赛" | "其他";
+  event_tier: string;
   teams_count: number;
   completion: string;
   updated_at: string;
@@ -140,7 +140,8 @@ export default function HomePage() {
     if (tier === "预选赛") {
       return <Badge className="bg-blue-600 text-white">预选赛</Badge>;
     }
-    return <Badge variant="secondary">其他</Badge>;
+    if (tier === "其他") return <Badge variant="secondary">其他</Badge>;
+    return <Badge className="bg-violet-100 text-violet-700 border-violet-200">{tier}</Badge>;
   };
 
   const filteredTournaments = tournaments.filter((t) => {

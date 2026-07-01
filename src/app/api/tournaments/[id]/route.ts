@@ -18,8 +18,6 @@ export async function GET(
   return NextResponse.json(data);
 }
 
-const VALID_TIERS = ["顶级赛事", "预选赛", "其他"] as const;
-
 // PUT /api/tournaments/[id] - 更新比赛（名称 / league_id / 标签）
 export async function PUT(
   req: NextRequest,
@@ -29,17 +27,15 @@ export async function PUT(
   const body = await req.json();
   const { name, league_id, event_tier } = body;
 
-  if (
-    event_tier !== undefined &&
-    !VALID_TIERS.includes(event_tier)
-  ) {
-    return NextResponse.json(
-      { error: `event_tier 取值非法，应为：${VALID_TIERS.join(" / ")}` },
-      { status: 400 }
-    );
+  if (event_tier !== undefined && String(event_tier).trim() === "") {
+    return NextResponse.json({ error: "event_tier 不能为空" }, { status: 400 });
   }
 
-  const data = updateTournamentById(Number(id), { name, league_id, event_tier });
+  const data = updateTournamentById(Number(id), {
+    name,
+    league_id,
+    event_tier: event_tier === undefined ? undefined : String(event_tier).trim(),
+  });
   if (!data) {
     return NextResponse.json({ error: "比赛不存在" }, { status: 404 });
   }

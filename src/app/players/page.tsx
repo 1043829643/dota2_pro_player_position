@@ -33,7 +33,7 @@ interface PlayerCard {
   tournament_id: number;
   tournament_name: string;
   league_id: string;
-  event_tier: "顶级赛事" | "预选赛" | "其他";
+  event_tier: string;
   team_record_id: number;
   team_name: string;
   team_tag: string | null;

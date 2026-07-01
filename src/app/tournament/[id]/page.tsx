@@ -38,13 +38,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-type TournamentTier = "顶级赛事" | "预选赛" | "其他";
+type TournamentTier = string;
 const TIER_OPTIONS: TournamentTier[] = ["顶级赛事", "预选赛", "其他"];
-const tierBadgeClass: Record<TournamentTier, string> = {
+const tierBadgeClass: Record<string, string> = {
   "顶级赛事": "bg-amber-100 text-amber-700 border-amber-200",
   "预选赛": "bg-sky-100 text-sky-700 border-sky-200",
   "其他": "bg-slate-100 text-slate-600 border-slate-200",
 };
+const getTierBadgeClass = (tier: string) =>
+  tierBadgeClass[tier] ?? "bg-violet-100 text-violet-700 border-violet-200";
 
 interface Player {
   id: number;
@@ -92,6 +94,7 @@ export default function TournamentPage() {
   const [openEdit, setOpenEdit] = useState(false);
   const [editName, setEditName] = useState("");
   const [editTier, setEditTier] = useState<TournamentTier>("其他");
+  const [customTier, setCustomTier] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
   const fetchTeams = useCallback(async () => {
@@ -116,7 +119,9 @@ export default function TournamentPage() {
 
   const openEditDialog = () => {
     setEditName(tournamentName);
-    setEditTier(eventTier);
+    const isPresetTier = TIER_OPTIONS.includes(eventTier);
+    setEditTier(isPresetTier ? eventTier : "其他");
+    setCustomTier(isPresetTier ? "" : eventTier);
     setOpenEdit(true);
   };
 
@@ -125,12 +130,17 @@ export default function TournamentPage() {
       toast.error("联赛名不能为空");
       return;
     }
+    const finalTier = (customTier.trim() || editTier).trim();
+    if (!finalTier) {
+      toast.error("赛事标签不能为空");
+      return;
+    }
     setSavingEdit(true);
     try {
       const res = await fetch(apiPath(`/api/tournaments/${tournamentId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: editName.trim(), event_tier: editTier }),
+        body: JSON.stringify({ name: editName.trim(), event_tier: finalTier }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -228,7 +238,7 @@ export default function TournamentPage() {
                 <h1 className="text-2xl font-bold text-slate-900">{tournamentName || "比赛详情"}</h1>
                 {!loading && (
                   <span
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${tierBadgeClass[eventTier]}`}
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${getTierBadgeClass(eventTier)}`}
                   >
                     {eventTier}
                     {tierLocked && <span className="ml-1 opacity-60">·手动</span>}
@@ -350,7 +360,13 @@ export default function TournamentPage() {
             </div>
             <div className="space-y-2">
               <Label>赛事标签</Label>
-              <Select value={editTier} onValueChange={(v: TournamentTier) => setEditTier(v)}>
+              <Select
+                value={editTier}
+                onValueChange={(v: TournamentTier) => {
+                  setEditTier(v);
+                  setCustomTier("");
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -362,6 +378,17 @@ export default function TournamentPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <div className="space-y-1.5">
+                <Label htmlFor="custom_tier" className="text-xs text-slate-500">
+                  自定义标签（填写后优先使用）
+                </Label>
+                <Input
+                  id="custom_tier"
+                  placeholder="例如：公开预选赛 / 区域赛 / 训练赛"
+                  value={customTier}
+                  onChange={(e) => setCustomTier(e.target.value)}
+                />
+              </div>
               <p className="text-xs text-slate-500">
                 手动保存后，该联赛的标签将被锁定，不再按联赛名自动分类。
               </p>
