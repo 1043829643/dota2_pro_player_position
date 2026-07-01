@@ -39,6 +39,11 @@ async function withConnection<T>(
   const conn = await mysql.createConnection({
     ...STARROCKS_CONFIG,
     connectTimeout: 15000,
+    // steamid64 等 17 位整数超出 JS Number 安全范围（2^53），
+    // 若按默认返回为 number 会丢末位精度。开启后这类超大 BIGINT 以字符串原样返回，
+    // 小整数（slot、team、场次等）不受影响仍为 number。
+    supportBigNumbers: true,
+    bigNumberStrings: false,
   });
   try {
     return await fn(conn);
