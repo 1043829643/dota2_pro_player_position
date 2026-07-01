@@ -25,6 +25,8 @@ export interface LeaguePlayerRow {
   steamid: string | null;
   name: string | null;
   hits_5m: number | null;
+  // 局内分路：1=安全路 2=中路 3=优势路 4=打野。用于精确判位。
+  lane_role?: number | null;
   slot?: number | null;
 }
 
@@ -125,7 +127,8 @@ export async function fetchLeaguePlayerRows(
          END AS team_name,
          mp.steamid,
          mp.name,
-         mp.hits_5m
+         mp.hits_5m,
+         mp.lane_role
        FROM dwd_match_player_positions mp
        JOIN dwd_match_overview mo ON mo.match_id = mp.match_id
        WHERE mo.league_id = ?
@@ -137,6 +140,7 @@ export async function fetchLeaguePlayerRows(
       steamid: r.steamid == null ? null : String(r.steamid),
       name: r.name == null ? null : String(r.name),
       hits_5m: r.hits_5m == null ? null : Number(r.hits_5m),
+      lane_role: r.lane_role == null ? null : Number(r.lane_role),
       slot: null,
     }));
     if (positionRows.length > 0) return positionRows;
@@ -174,6 +178,7 @@ export async function fetchLeaguePlayerRows(
       steamid: r.steamid == null ? null : String(r.steamid),
       name: r.name == null ? null : String(r.name),
       hits_5m: r.hits_5m == null ? null : Number(r.hits_5m),
+      lane_role: null,
       slot: r.slot == null ? null : Number(r.slot),
     }));
   });

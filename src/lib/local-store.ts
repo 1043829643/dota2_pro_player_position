@@ -487,6 +487,8 @@ export interface RawPlayerRow {
   steamid: string | null;
   name: string | null;
   hits_5m: number | null;
+  // 局内分路：1=安全路 2=中路 3=优势路 4=打野
+  lane_role?: number | null;
   slot?: number | null;
 }
 
@@ -518,6 +520,8 @@ interface BuiltPlayer {
   count: number;
   avgHits: number;
   hasHits: boolean;
+  // 主分路（该联赛内众数 lane_role）：1=安全路 2=中路 3=优势路 4=打野；无数据为 null
+  laneRole: number | null;
 }
 
 interface BuiltTeam {
@@ -576,10 +580,13 @@ function syntheticTeamId(leagueId: string, teamName: string): string {
   return BigInt(`0x${digest}`).toString();
 }
 
-// 重建阵容：每队取出场最多的 5 人，按“本届联赛人均补刀”从高到低 = 1→5 号位。
-// 补刀(hits_5m 或 player_intervals2 真实 lh)是唯一的判位依据；slot 只是单场槽位、
-// 与分路无关，不参与计算。若某队有 5 人但缺少补刀数据，则不编造位置，
-// 而是列入 missingPositionTeams 明确指出缺谁的数据。
+// 重建阵容：每队取出场最多的 5 人，用「局内分路 lane_role + 5 分钟补刀」精确判位：
+//   中路(lane_role=2) → 2 号位；
+//   安全路(lane_role=1) 两人：补刀多 = 1 号位，补刀少 = 5 号位；
+//   优势路(lane_role=3) 两人：补刀多 = 3 号位，补刀少 = 4 号位。
+// 分路取该选手在本届联赛的众数 lane_role。若分路数据不规整（非 2安全/1中/2优势），
+// 退化为“按人均补刀从高到低 = 1→5 号位”。slot 只是单场槽位、与分路无关，不参与计算。
+// 若某队有 5 人但完全没有补刀数据，则不编造位置，列入 missingPositionTeams。
 function buildLineups(
   rows: RawPlayerRow[],
   leagueId: string
@@ -590,7 +597,12 @@ function buildLineups(
 } {
   const stats = new Map<
     string,
-    { count: number; hits: number[]; names: Map<string, number> }
+    {
+      count: number;
+      hits: number[];
+      names: Map<string, number>;
+      laneCounts: Map<number, number>;
+    }
   >();
   const teamNameByKey = new Map<string, string>();
 
@@ -605,9 +617,13 @@ function buildLineups(
       count: 0,
       hits: [] as number[],
       names: new Map<string, number>(),
+      laneCounts: new Map<number, number>(),
     };
     st.count += 1;
     if (row.hits_5m != null && !Number.isNaN(row.hits_5m)) st.hits.push(row.hits_5m);
+    if (row.lane_role != null && !Number.isNaN(row.lane_role)) {
+      st.laneCounts.set(row.lane_role, (st.laneCounts.get(row.lane_role) ?? 0) + 1);
+    }
     if (row.name) st.names.set(row.name, (st.names.get(row.name) ?? 0) + 1);
     stats.set(key, st);
   }
@@ -627,6 +643,14 @@ function buildLineups(
         bestName = n;
       }
     }
+    let laneRole: number | null = null;
+    let laneBest = -1;
+    for (const [lane, c] of st.laneCounts.entries()) {
+      if (c > laneBest) {
+        laneBest = c;
+        laneRole = lane;
+      }
+    }
     const list = teamMap.get(teamName) ?? [];
     list.push({
       steamid: sid,
@@ -634,6 +658,7 @@ function buildLineups(
       count: st.count,
       avgHits,
       hasHits: st.hits.length > 0,
+      laneRole,
     });
     teamMap.set(teamName, list);
   }
@@ -652,7 +677,7 @@ function buildLineups(
       continue;
     }
 
-    // 只用补刀判位：任意一名选手没有补刀数据就无法可靠排位，不编造。
+    // 完全没有补刀数据则无法判位，不编造。
     const withoutHits = top5.filter((p) => !p.hasHits);
     if (withoutHits.length > 0) {
       missingPositionTeams.push({
@@ -662,13 +687,7 @@ function buildLineups(
       continue;
     }
 
-    // 人均补刀从高到低 = 1→5 号位（补刀最多=核心1号位，最少=辅助5号位）。
-    const ranked = top5.slice().sort((a, b) => b.avgHits - a.avgHits);
-    const assigned: Record<number, BuiltPlayer> = {};
-    [1, 2, 3, 4, 5].forEach((pos, idx) => {
-      assigned[pos] = ranked[idx];
-    });
-
+    const assigned = assignPositions(top5);
     teams.push({
       team_name: teamName,
       team_tag: teamTagFromName(teamName),
@@ -679,6 +698,34 @@ function buildLineups(
 
   teams.sort((a, b) => a.team_name.localeCompare(b.team_name));
   return { teams, skippedIncomplete, missingPositionTeams };
+}
+
+// 用局内分路 + 5 分钟补刀给 5 名选手分配 1~5 号位。
+function assignPositions(top5: BuiltPlayer[]): Record<number, BuiltPlayer> {
+  const safe = top5.filter((p) => p.laneRole === 1);
+  const mid = top5.filter((p) => p.laneRole === 2);
+  const off = top5.filter((p) => p.laneRole === 3);
+
+  // 标准阵型：安全路 2 人、中路 1 人、优势路 2 人 → 用补刀区分核心/辅助。
+  if (safe.length === 2 && mid.length === 1 && off.length === 2) {
+    const safeSorted = safe.slice().sort((a, b) => b.avgHits - a.avgHits);
+    const offSorted = off.slice().sort((a, b) => b.avgHits - a.avgHits);
+    return {
+      1: safeSorted[0], // 安全路核心
+      2: mid[0], // 中路
+      3: offSorted[0], // 优势路核心
+      4: offSorted[1], // 优势路辅助
+      5: safeSorted[1], // 安全路辅助
+    };
+  }
+
+  // 分路数据不规整（游走/打野/缺失等）时退化为纯补刀排序：补刀多→1，少→5。
+  const ranked = top5.slice().sort((a, b) => b.avgHits - a.avgHits);
+  const assigned: Record<number, BuiltPlayer> = {};
+  [1, 2, 3, 4, 5].forEach((pos, idx) => {
+    assigned[pos] = ranked[idx];
+  });
+  return assigned;
 }
 
 // 将重建出的联赛阵容合并进本地库（按 league_id 去重，按 战队名 去重并整队替换选手）
