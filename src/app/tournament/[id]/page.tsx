@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiPath } from "@/lib/base-path";
 import { Toaster, toast } from "sonner";
 import {
   ArrowLeft,
@@ -96,8 +97,8 @@ export default function TournamentPage() {
   const fetchTeams = useCallback(async () => {
     try {
       const [teamsRes, tourRes] = await Promise.all([
-        fetch(`/api/tournaments/${tournamentId}/teams`),
-        fetch(`/api/tournaments/${tournamentId}`),
+        fetch(apiPath(`/api/tournaments/${tournamentId}/teams`)),
+        fetch(apiPath(`/api/tournaments/${tournamentId}`)),
       ]);
       const teamsData = await teamsRes.json();
       const tourData = await tourRes.json();
@@ -126,7 +127,7 @@ export default function TournamentPage() {
     }
     setSavingEdit(true);
     try {
-      const res = await fetch(`/api/tournaments/${tournamentId}`, {
+      const res = await fetch(apiPath(`/api/tournaments/${tournamentId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: editName.trim(), event_tier: editTier }),
@@ -156,7 +157,7 @@ export default function TournamentPage() {
     }
     setCreating(true);
     try {
-      const res = await fetch(`/api/tournaments/${tournamentId}/teams`, {
+      const res = await fetch(apiPath(`/api/tournaments/${tournamentId}/teams`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -182,7 +183,7 @@ export default function TournamentPage() {
   const handleDeleteTeam = async (id: number) => {
     if (!confirm("确认删除该战队及所有选手数据？")) return;
     try {
-      const res = await fetch(`/api/teams/${id}`, { method: "DELETE" });
+      const res = await fetch(apiPath(`/api/teams/${id}`), { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       toast.success("战队已删除");
       await fetchTeams();

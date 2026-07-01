@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiPath } from "@/lib/base-path";
 import { Toaster, toast } from "sonner";
 import {
   Database,
@@ -65,7 +66,7 @@ export default function LeaguesPage() {
   const fetchCatalog = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/leagues/catalog");
+      const res = await fetch(apiPath("/api/leagues/catalog"));
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error ?? "请求失败");
@@ -166,7 +167,7 @@ export default function LeaguesPage() {
     }
     setImporting(true);
     try {
-      const res = await fetch("/api/leagues/import", {
+      const res = await fetch(apiPath("/api/leagues/import"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ league_ids: Array.from(selected) }),

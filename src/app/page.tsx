@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiPath } from "@/lib/base-path";
 import { Toaster, toast } from "sonner";
 import {
   Trophy,
@@ -62,7 +63,7 @@ export default function HomePage() {
 
   const fetchTournaments = useCallback(async () => {
     try {
-      const res = await fetch("/api/tournaments");
+      const res = await fetch(apiPath("/api/tournaments"));
       if (!res.ok) throw new Error("请求失败");
       const data = await res.json();
       setTournaments(Array.isArray(data) ? data : []);
@@ -84,7 +85,7 @@ export default function HomePage() {
     }
     setCreating(true);
     try {
-      const res = await fetch("/api/tournaments", {
+      const res = await fetch(apiPath("/api/tournaments"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newName.trim(), league_id: newLeagueId.trim() }),
@@ -109,7 +110,7 @@ export default function HomePage() {
     e.stopPropagation();
     if (!confirm("确认删除该比赛及所有相关数据？")) return;
     try {
-      const res = await fetch(`/api/tournaments/${id}`, { method: "DELETE" });
+      const res = await fetch(apiPath(`/api/tournaments/${id}`), { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       toast.success("比赛已删除");
       await fetchTournaments();
@@ -155,7 +156,7 @@ export default function HomePage() {
         tier: exportTier,
         format: exportFormat,
       });
-      const res = await fetch(`/api/export?${params.toString()}`);
+      const res = await fetch(apiPath(`/api/export?${params.toString()}`));
       if (!res.ok) throw new Error("导出失败");
       const blob = await res.blob();
       const tierName =

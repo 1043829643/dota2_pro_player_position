@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { apiPath } from "@/lib/base-path";
 import { Toaster, toast } from "sonner";
 import {
   Fingerprint,
@@ -150,7 +151,7 @@ export default function TeamIdPage() {
       const need = Array.from(new Set(teamIds)).filter((id) => id && !logos[id]);
       if (need.length === 0) return;
       try {
-        const res = await fetch(`/api/team-id/team-logo?ids=${need.join(",")}`);
+        const res = await fetch(apiPath(`/api/team-id/team-logo?ids=${need.join(",")}`));
         if (!res.ok) return;
         const data = await res.json();
         if (data.logos) setLogos((prev) => ({ ...prev, ...data.logos }));
@@ -164,7 +165,7 @@ export default function TeamIdPage() {
   const handleDetect = async () => {
     setDetecting(true);
     try {
-      const res = await fetch("/api/team-id/detect", {
+      const res = await fetch(apiPath("/api/team-id/detect"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -199,7 +200,7 @@ export default function TeamIdPage() {
     setSearching(true);
     setCandidates([]);
     try {
-      const res = await fetch(`/api/team-id/player-candidates?q=${encodeURIComponent(q)}`);
+      const res = await fetch(apiPath(`/api/team-id/player-candidates?q=${encodeURIComponent(q)}`));
       if (!res.ok) throw new Error("搜索失败");
       const data = await res.json();
       setCandidates(data.candidates ?? []);
@@ -215,7 +216,7 @@ export default function TeamIdPage() {
     setTracking(true);
     setTrack(null);
     try {
-      const res = await fetch("/api/team-id/player-track", {
+      const res = await fetch(apiPath("/api/team-id/player-track"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ steamid }),
@@ -248,7 +249,7 @@ export default function TeamIdPage() {
   const loadRecords = useCallback(async () => {
     setRecordsLoading(true);
     try {
-      const res = await fetch("/api/team-id/manual-records");
+      const res = await fetch(apiPath("/api/team-id/manual-records"));
       if (!res.ok) throw new Error("读取维护表失败");
       const data = await res.json();
       setRecords(data.records ?? []);
@@ -272,7 +273,7 @@ export default function TeamIdPage() {
   const saveRecords = async () => {
     setSavingRecords(true);
     try {
-      const res = await fetch("/api/team-id/manual-records/save-all", {
+      const res = await fetch(apiPath("/api/team-id/manual-records/save-all"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ records }),

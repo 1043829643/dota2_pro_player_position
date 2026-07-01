@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { apiPath } from "@/lib/base-path";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast, Toaster } from "sonner";
@@ -98,7 +99,7 @@ export default function PlayersPage() {
   async function fetchCards() {
     setLoadingCards(true);
     try {
-      const res = await fetch("/api/player-management/cards");
+      const res = await fetch(apiPath("/api/player-management/cards"));
       if (!res.ok) throw new Error("加载选手卡片失败");
       const data = await res.json();
       setCards(data.cards ?? []);
@@ -148,7 +149,7 @@ export default function PlayersPage() {
       toast.error("昵称不能为空");
       return;
     }
-    const res = await fetch("/api/player-management/profile", {
+    const res = await fetch(apiPath("/api/player-management/profile"), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -188,7 +189,7 @@ export default function PlayersPage() {
       if (!ok) return;
     }
 
-    const res = await fetch("/api/player-management/profile", {
+    const res = await fetch(apiPath("/api/player-management/profile"), {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

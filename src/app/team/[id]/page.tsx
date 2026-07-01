@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
+import { apiPath } from "@/lib/base-path";
 import { Toaster, toast } from "sonner";
 import {
   ArrowLeft,
@@ -94,8 +95,8 @@ export default function TeamPage() {
   const fetchData = useCallback(async () => {
     try {
       const [teamRes, playersRes] = await Promise.all([
-        fetch(`/api/teams/${teamId}`),
-        fetch(`/api/teams/${teamId}/players`),
+        fetch(apiPath(`/api/teams/${teamId}`)),
+        fetch(apiPath(`/api/teams/${teamId}/players`)),
       ]);
       const teamData = await teamRes.json();
       const playersData = await playersRes.json();
@@ -178,7 +179,7 @@ export default function TeamPage() {
 
     try {
       if (occupiedPlayer) {
-        const swapRes = await fetch(`/api/players/${occupiedPlayer.id}`, {
+        const swapRes = await fetch(apiPath(`/api/players/${occupiedPlayer.id}`), {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -188,7 +189,7 @@ export default function TeamPage() {
         if (!swapRes.ok) throw new Error("交换位置失败");
       }
 
-      const res = await fetch(`/api/players/${editingPlayer.id}`, {
+      const res = await fetch(apiPath(`/api/players/${editingPlayer.id}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -236,7 +237,7 @@ export default function TeamPage() {
     }
 
     try {
-      const res = await fetch(`/api/teams/${teamId}/players`, {
+      const res = await fetch(apiPath(`/api/teams/${teamId}/players`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -259,7 +260,7 @@ export default function TeamPage() {
   const handleDeletePlayer = async (player: Player) => {
     if (!confirm(`确认移除选手「${player.nickname}」？`)) return;
     try {
-      const res = await fetch(`/api/players/${player.id}`, { method: "DELETE" });
+      const res = await fetch(apiPath(`/api/players/${player.id}`), { method: "DELETE" });
       if (!res.ok) throw new Error("删除失败");
       toast.success("选手已移除");
       setSavedSuccess(false);
@@ -327,7 +328,7 @@ export default function TeamPage() {
     else if (positions.length > 0) status = "待确认";
 
     try {
-      await fetch(`/api/teams/${teamId}`, {
+      await fetch(apiPath(`/api/teams/${teamId}`), {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
@@ -347,7 +348,7 @@ export default function TeamPage() {
 
   useEffect(() => {
     if (team) {
-      fetch(`/api/tournaments/${team.tournament_id}/teams`)
+      fetch(apiPath(`/api/tournaments/${team.tournament_id}/teams`))
         .then((r) => r.json())
         .then((data: TournamentTeamSummary[]) => {
           setTournamentTeams(data);
