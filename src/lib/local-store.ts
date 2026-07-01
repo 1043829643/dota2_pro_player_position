@@ -538,30 +538,6 @@ export function getExistingLeagueIds(): Set<string> {
   );
 }
 
-// 基于已有数据，统计每个 steamid 最常见的位置，作为重建时的分路提示
-function buildPositionHints(db: LocalStoreData): Map<string, number> {
-  const bySid = new Map<string, Map<number, number>>();
-  for (const p of db.players) {
-    if (!p.steamid64 || !p.position) continue;
-    const counts = bySid.get(p.steamid64) ?? new Map<number, number>();
-    counts.set(p.position, (counts.get(p.position) ?? 0) + 1);
-    bySid.set(p.steamid64, counts);
-  }
-  const hints = new Map<string, number>();
-  for (const [sid, counts] of bySid.entries()) {
-    let bestPos = 0;
-    let bestCount = -1;
-    for (const [pos, c] of counts.entries()) {
-      if (c > bestCount) {
-        bestCount = c;
-        bestPos = pos;
-      }
-    }
-    if (bestPos) hints.set(sid, bestPos);
-  }
-  return hints;
-}
-
 function normalizeTeamName(name: string): string {
   return name.trim().split(/\s+/).join(" ");
 }
@@ -595,7 +571,6 @@ function syntheticTeamId(leagueId: string, teamName: string): string {
 // 启发式重建：每队取出场最多的 5 人，先按分路提示分配，剩余按补刀均值排序填入空位
 function buildLineups(
   rows: RawPlayerRow[],
-  positionHints: Map<string, number>,
   leagueId: string
 ): { teams: BuiltTeam[]; skippedIncomplete: number } {
   const stats = new Map<
@@ -664,34 +639,19 @@ function buildLineups(
     }
 
     const assigned: Record<number, BuiltPlayer> = {};
-    const usedPositions = new Set<number>();
 
-    // 兜底导入（来自 dota2_analysis.players，带 slot 信号）要求“只用这届联赛计算”：
-    // 此时完全按本届人均补刀排序判位，不引入跨联赛历史 hint 覆盖。
-    // 主表路径（无 slot 信号）仍沿用历史 hint 优先的既有行为。
-    const inLeagueOnly = top5.some((p) => p.avgSlotPosition != null);
-
-    if (!inLeagueOnly) {
-      for (const p of top5) {
-        const hint = positionHints.get(p.steamid);
-        if (hint && !usedPositions.has(hint)) {
-          assigned[hint] = p;
-          usedPositions.add(hint);
-        }
-      }
-    }
-
-    const remainingPlayers = top5
-      .filter((p) => !Object.values(assigned).includes(p))
-      .sort((a, b) => {
-        if (a.avgHits !== b.avgHits) return b.avgHits - a.avgHits;
-        const aSlot = a.avgSlotPosition ?? 99;
-        const bSlot = b.avgSlotPosition ?? 99;
-        return aSlot - bSlot;
-      });
-    const remainingPositions = [1, 2, 3, 4, 5].filter((pos) => !usedPositions.has(pos));
-    remainingPositions.forEach((pos, idx) => {
-      if (remainingPlayers[idx]) assigned[pos] = remainingPlayers[idx];
+    // 位置完全由“本届联赛”数据决定，不引入任何跨联赛历史：
+    // 按人均 5 分钟补刀(hits_5m) 从高到低 = 1→5 号位
+    // （补刀最多 = 核心 1 号位，最少 = 辅助 5 号位）；
+    // 若该届缺少补刀指标（如尚未写入主表），则用对局内 slot 作为稳定兜底。
+    const ranked = top5.slice().sort((a, b) => {
+      if (a.avgHits !== b.avgHits) return b.avgHits - a.avgHits;
+      const aSlot = a.avgSlotPosition ?? 99;
+      const bSlot = b.avgSlotPosition ?? 99;
+      return aSlot - bSlot;
+    });
+    [1, 2, 3, 4, 5].forEach((pos, idx) => {
+      if (ranked[idx]) assigned[pos] = ranked[idx];
     });
 
     if ([1, 2, 3, 4, 5].some((pos) => !assigned[pos])) {
@@ -720,12 +680,7 @@ export function importLeagueFromRawRows(
 ): LeagueImportResult {
   const db = loadData();
   const now = new Date().toISOString();
-  const positionHints = buildPositionHints(db);
-  const { teams: builtTeams, skippedIncomplete } = buildLineups(
-    rows,
-    positionHints,
-    leagueId
-  );
+  const { teams: builtTeams, skippedIncomplete } = buildLineups(rows, leagueId);
 
   let tournament = db.tournaments.find((t) => String(t.league_id) === String(leagueId));
   if (!tournament) {
