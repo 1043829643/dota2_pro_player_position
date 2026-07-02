@@ -290,3 +290,25 @@ export async function fetchLeagueName(leagueId: string): Promise<string | null> 
     return fallbackName || null;
   });
 }
+
+// 查询某联赛最早/最晚一场比赛时间（用于首页展示赛段起止）
+export async function fetchLeagueMatchDateRange(leagueId: string): Promise<{
+  first_at: string | null;
+  last_at: string | null;
+}> {
+  return withConnection(async (conn) => {
+    const [rows] = await conn.query(
+      `SELECT
+         DATE_FORMAT(MIN(start_date), '%Y-%m-%d %H:%i') AS first_at,
+         DATE_FORMAT(MAX(start_date), '%Y-%m-%d %H:%i') AS last_at
+       FROM dwd_match_overview
+       WHERE league_id = ? AND start_date IS NOT NULL`,
+      [leagueId]
+    );
+    const r = (rows as Array<Record<string, unknown>>)[0];
+    return {
+      first_at: r?.first_at == null ? null : String(r.first_at),
+      last_at: r?.last_at == null ? null : String(r.last_at),
+    };
+  });
+}

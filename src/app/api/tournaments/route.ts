@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   createTournament,
+  enrichTournamentMatchDates,
   listTournamentSummaries,
 } from "@/lib/local-store";
 
 // GET /api/tournaments - 获取所有比赛列表
 export async function GET() {
+  await enrichTournamentMatchDates();
   return NextResponse.json(listTournamentSummaries());
 }
 

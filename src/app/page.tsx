@@ -44,6 +44,8 @@ interface Tournament {
   event_tier: string;
   teams_count: number;
   completion: string;
+  match_first_at: string | null;
+  match_last_at: string | null;
   updated_at: string;
 }
 
@@ -122,6 +124,12 @@ export default function HomePage() {
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  };
+
+  const formatMatchRange = (first: string | null, last: string | null) => {
+    if (!first && !last) return null;
+    if (first && last) return `${first} ~ ${last}`;
+    return first ?? last;
   };
 
   const getCompletionBadge = (completion: string) => {
@@ -309,6 +317,12 @@ export default function HomePage() {
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-2 text-sm">
+                    {formatMatchRange(t.match_first_at, t.match_last_at) && (
+                      <div className="flex items-center gap-2 text-slate-500">
+                        <Calendar className="w-4 h-4 shrink-0" />
+                        <span>{formatMatchRange(t.match_first_at, t.match_last_at)}</span>
+                      </div>
+                    )}
                     <div className="flex items-center gap-2 text-slate-500">
                       <Hash className="w-4 h-4" />
                       <span>{t.league_id}</span>
@@ -326,8 +340,7 @@ export default function HomePage() {
                       <ChevronRight className="w-5 h-5 text-slate-300 group-hover:text-indigo-400 transition-colors" />
                     </div>
                     <div className="flex items-center gap-1 text-xs text-slate-400 pt-1">
-                      <Calendar className="w-3 h-3" />
-                      <span>{formatDate(t.updated_at)}</span>
+                      <span className="text-slate-400">更新于 {formatDate(t.updated_at)}</span>
                     </div>
                   </div>
                 </CardContent>

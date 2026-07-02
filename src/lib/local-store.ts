@@ -2,6 +2,7 @@ import crypto from "crypto";
 import fs from "fs";
 import path from "path";
 import { isBlobStoreEnabled, loadBlob, saveBlob } from "./blob-store";
+import { fetchLeagueMatchDateRange } from "./starrocks";
 
 const BLOB_KEY = "local_store";
 
@@ -12,6 +13,9 @@ export interface TournamentRecord {
   event_tier?: TournamentTier;
   // 为 true 时表示标签由用户手动设定，不再被按联赛名自动分类覆盖。
   tier_locked?: boolean;
+  // 该联赛在数据库中最早/最晚一场比赛的 start_date（用于首页展示赛段时间）
+  match_first_at?: string | null;
+  match_last_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -138,6 +142,8 @@ export function listTournamentSummaries() {
         event_tier: t.event_tier ?? classifyTournamentTier(t.name),
         teams_count: teams.length,
         completion,
+        match_first_at: t.match_first_at ?? null,
+        match_last_at: t.match_last_at ?? null,
         updated_at: t.updated_at,
       };
     })
@@ -835,7 +841,8 @@ export function importLeagueFromRawRows(
   leagueId: string,
   leagueName: string,
   rows: RawPlayerRow[],
-  fallbackTeams: RawTeamRow[] = []
+  fallbackTeams: RawTeamRow[] = [],
+  matchDates?: { first_at: string | null; last_at: string | null } | null
 ): LeagueImportResult {
   const db = loadData();
   const now = new Date().toISOString();
@@ -870,6 +877,8 @@ export function importLeagueFromRawRows(
     }
     tournament.updated_at = now;
   }
+  if (matchDates?.first_at) tournament.match_first_at = matchDates.first_at;
+  if (matchDates?.last_at) tournament.match_last_at = matchDates.last_at;
 
   const builtTeamNames = new Set(builtTeams.map((bt) => normalizeTeamName(bt.team_name)));
 
@@ -1047,6 +1056,28 @@ function schedulePush(data: LocalStoreData) {
     pendingPush = null;
     if (snapshot) void saveBlob(BLOB_KEY, snapshot);
   }, 400);
+}
+
+// 为缺少赛段时间的联赛从 StarRocks 补全 match_first_at / match_last_at
+export async function enrichTournamentMatchDates(): Promise<number> {
+  const db = loadData();
+  let updated = 0;
+  for (const t of db.tournaments) {
+    const leagueId = String(t.league_id ?? "").trim();
+    if (!leagueId || leagueId === "0") continue;
+    if (t.match_first_at && t.match_last_at) continue;
+    try {
+      const range = await fetchLeagueMatchDateRange(leagueId);
+      if (!range.first_at && !range.last_at) continue;
+      t.match_first_at = range.first_at;
+      t.match_last_at = range.last_at;
+      updated += 1;
+    } catch {
+      // 单联赛查询失败不影响其余
+    }
+  }
+  if (updated > 0) saveData(db);
+  return updated;
 }
 
 // 启动时从远端 blob 拉取并落到本地文件；远端为空则用本地（种子）数据初始化远端。
