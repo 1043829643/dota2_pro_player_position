@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchLeagueName, fetchLeaguePlayerRows, fetchLeagueTeams, fetchLeagueTeamExternalIds } from "@/lib/starrocks";
-import { importLeagueFromRawRows, type LeagueImportResult } from "@/lib/local-store";
+import { importLeagueFromRawRows, type LeagueImportResult, dedupeAllTournamentsInStore } from "@/lib/local-store";
 
 export const dynamic = "force-dynamic";
 
@@ -55,10 +55,13 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const dedupeAll = dedupeAllTournamentsInStore();
+
   return NextResponse.json({
     imported_leagues: results.length,
     imported_teams: results.reduce((sum, r) => sum + r.teams_imported, 0),
     results,
     errors,
+    deduped_all_teams: dedupeAll.removed,
   });
 }

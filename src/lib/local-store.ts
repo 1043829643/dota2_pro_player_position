@@ -608,6 +608,54 @@ function dedupeTeamsByExternalId(db: LocalStoreData, tournamentId: number): numb
   return removed;
 }
 
+/** 同一联赛内按归一化队名去重（完全同名） */
+function dedupeTeamsByNormalizedName(db: LocalStoreData, tournamentId: number): number {
+  const inTour = db.teams.filter((t) => t.tournament_id === tournamentId);
+  const groups = new Map<string, TeamRecord[]>();
+  for (const t of inTour) {
+    const key = normalizeTeamName(t.name).toLowerCase();
+    if (!key) continue;
+    const list = groups.get(key) ?? [];
+    list.push(t);
+    groups.set(key, list);
+  }
+  let removed = 0;
+  for (const [, group] of groups) {
+    if (group.length <= 1) continue;
+    group.sort((a, b) => {
+      const pa = db.players.filter((p) => p.team_id === a.id).length;
+      const pb = db.players.filter((p) => p.team_id === b.id).length;
+      if (pb !== pa) return pb - pa;
+      if (isRealExternalTeamId(a.team_id) !== isRealExternalTeamId(b.team_id)) {
+        return isRealExternalTeamId(b.team_id) ? 1 : -1;
+      }
+      return a.id - b.id;
+    });
+    for (const dup of group.slice(1)) {
+      db.players = db.players.filter((p) => p.team_id !== dup.id);
+      db.teams = db.teams.filter((t) => t.id !== dup.id);
+      removed += 1;
+    }
+  }
+  return removed;
+}
+
+/** 对本地库中所有联赛执行战队去重（按真实 team_id + 归一化队名） */
+export function dedupeAllTournamentsInStore(): {
+  tournaments: number;
+  removed: number;
+} {
+  const db = loadData();
+  const tournamentIds = [...new Set(db.teams.map((t) => t.tournament_id))];
+  let removed = 0;
+  for (const tid of tournamentIds) {
+    removed += dedupeTeamsByExternalId(db, tid);
+    removed += dedupeTeamsByNormalizedName(db, tid);
+  }
+  if (removed > 0) saveData(db);
+  return { tournaments: tournamentIds.length, removed };
+}
+
 function teamTagFromName(name: string): string {
   const normalized = normalizeTeamName(name);
   if (normalized.length <= 8) return normalized;
@@ -914,7 +962,9 @@ export function importLeagueFromRawRows(
     emptyTeamsImported += 1;
   }
 
-  const dedupedTeams = dedupeTeamsByExternalId(db, tournament.id);
+  const dedupedTeams =
+    dedupeTeamsByExternalId(db, tournament.id) +
+    dedupeTeamsByNormalizedName(db, tournament.id);
 
   saveData(db);
   return {
@@ -1011,6 +1061,12 @@ export async function hydrateLocalStore(): Promise<void> {
       ensureDataDir();
       fs.writeFileSync(STORE_PATH, JSON.stringify(remote, null, 2), "utf-8");
       console.log("[local-store] 已从远端 blob 恢复数据");
+      const dedupe = dedupeAllTournamentsInStore();
+      if (dedupe.removed > 0) {
+        console.log(
+          `[local-store] 启动全库去重: ${dedupe.tournaments} 个联赛, 移除 ${dedupe.removed} 条重复战队`
+        );
+      }
     } else {
       ensureInitialized();
       const seed = JSON.parse(fs.readFileSync(STORE_PATH, "utf-8")) as LocalStoreData;
