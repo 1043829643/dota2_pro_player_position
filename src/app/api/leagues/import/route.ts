@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchLeagueName, fetchLeaguePlayerRows, fetchLeagueTeams } from "@/lib/starrocks";
+import { fetchLeagueName, fetchLeaguePlayerRows, fetchLeagueTeams, fetchLeagueTeamExternalIds } from "@/lib/starrocks";
 import { importLeagueFromRawRows, type LeagueImportResult } from "@/lib/local-store";
 
 export const dynamic = "force-dynamic";
@@ -32,16 +32,21 @@ export async function POST(req: NextRequest) {
 
   for (const leagueId of leagueIds) {
     try {
-      const [leagueName, rows, teams] = await Promise.all([
+      const [leagueName, rows, teams, externalIds] = await Promise.all([
         fetchLeagueName(leagueId),
         fetchLeaguePlayerRows(leagueId),
         fetchLeagueTeams(leagueId),
+        fetchLeagueTeamExternalIds(leagueId),
       ]);
+      const teamsWithIds = teams.map((t) => ({
+        ...t,
+        team_id: externalIds.get(t.team_name) ?? null,
+      }));
       const result = importLeagueFromRawRows(
         leagueId,
         leagueName ?? `League ${leagueId}`,
         rows,
-        teams
+        teamsWithIds
       );
       results.push(result);
     } catch (e) {

@@ -495,6 +495,7 @@ export interface RawPlayerRow {
 export interface RawTeamRow {
   team_name: string;
   match_count: number;
+  team_id?: string | null;
 }
 
 export interface MissingPositionTeam {
@@ -740,6 +741,16 @@ export function importLeagueFromRawRows(
   const { teams: builtTeams, skippedIncomplete, missingPositionTeams } =
     buildLineups(rows, leagueId);
 
+  const externalIdByName = new Map<string, string>();
+  for (const t of fallbackTeams) {
+    const name = normalizeTeamName(t.team_name);
+    const tid = (t.team_id ?? "").trim();
+    if (name && tid && /^\d+$/.test(tid)) externalIdByName.set(name, tid);
+  }
+  const resolveTeamExternalId = (teamName: string) =>
+    externalIdByName.get(normalizeTeamName(teamName)) ??
+    syntheticTeamId(leagueId, teamName);
+
   let tournament = db.tournaments.find((t) => String(t.league_id) === String(leagueId));
   if (!tournament) {
     tournament = {
@@ -775,7 +786,7 @@ export function importLeagueFromRawRows(
         tournament_id: tournament.id,
         name: teamName,
         short_name: teamTagFromName(teamName) || null,
-        team_id: syntheticTeamId(leagueId, teamName),
+        team_id: resolveTeamExternalId(teamName),
         status: "缺失",
         created_at: now,
         updated_at: now,
@@ -799,7 +810,7 @@ export function importLeagueFromRawRows(
         tournament_id: tournament.id,
         name: bt.team_name,
         short_name: bt.team_tag || null,
-        team_id: bt.team_id,
+        team_id: resolveTeamExternalId(bt.team_name),
         status: "完整",
         created_at: now,
         updated_at: now,
@@ -807,7 +818,7 @@ export function importLeagueFromRawRows(
       db.teams.push(team);
     } else {
       team.short_name = bt.team_tag || null;
-      team.team_id = bt.team_id;
+      team.team_id = resolveTeamExternalId(bt.team_name);
       team.status = "完整";
       team.updated_at = now;
     }
@@ -842,7 +853,7 @@ export function importLeagueFromRawRows(
       tournament_id: tournament.id,
       name: teamName,
       short_name: teamTagFromName(teamName) || null,
-      team_id: syntheticTeamId(leagueId, teamName),
+      team_id: resolveTeamExternalId(teamName),
       status: "缺失",
       created_at: now,
       updated_at: now,

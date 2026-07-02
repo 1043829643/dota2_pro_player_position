@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { apiPath } from "@/lib/base-path";
+import { TeamLogo } from "@/components/team-logo";
 import { Toaster, toast } from "sonner";
 import {
   ArrowLeft,
@@ -419,9 +420,13 @@ export default function TeamPage() {
         {/* 头部 */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className="bg-gradient-to-br from-indigo-500 to-purple-600 text-white p-3 rounded-xl shadow-md">
-              <Users className="w-6 h-6" />
-            </div>
+            <TeamLogo
+              teamId={team?.team_id}
+              name={team?.name ?? ""}
+              shortName={team?.short_name}
+              size={48}
+              rounded="lg"
+            />
             <div>
               <h1 className="text-2xl font-bold text-slate-900">{team?.name}</h1>
               <p className="text-sm text-slate-500 mt-0.5">

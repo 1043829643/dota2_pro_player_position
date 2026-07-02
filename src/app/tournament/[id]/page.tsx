@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apiPath } from "@/lib/base-path";
+import { TeamLogo, useTeamLogos } from "@/components/team-logo";
 import { Toaster, toast } from "sonner";
 import {
   ArrowLeft,
@@ -83,6 +84,7 @@ export default function TournamentPage() {
   const [tierLocked, setTierLocked] = useState(false);
   const [leagueId, setLeagueId] = useState("");
   const [teams, setTeams] = useState<Team[]>([]);
+  const teamLogos = useTeamLogos(teams.map((t) => t.team_id));
   const [loading, setLoading] = useState(true);
   const [openCreateTeam, setOpenCreateTeam] = useState(false);
   const [teamName, setTeamName] = useState("");
@@ -286,11 +288,13 @@ export default function TournamentPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center">
-                        <span className="text-indigo-700 font-bold text-sm">
-                          {team.short_name || team.name.charAt(0)}
-                        </span>
-                      </div>
+                      <TeamLogo
+                        teamId={team.team_id}
+                        name={team.name}
+                        shortName={team.short_name}
+                        size={40}
+                        logoInfo={team.team_id ? teamLogos[team.team_id] : undefined}
+                      />
                       <div>
                         <CardTitle className="text-lg text-slate-800">{team.name}</CardTitle>
                         {team.short_name && (

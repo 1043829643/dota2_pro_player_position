@@ -33,6 +33,7 @@ export interface LeaguePlayerRow {
 export interface LeagueTeamRow {
   team_name: string;
   match_count: number;
+  team_id?: string | null;
 }
 
 async function withConnection<T>(
@@ -184,6 +185,56 @@ export async function fetchLeaguePlayerRows(
   });
 }
 
+// 拉取某联赛各队伍在 match_info 中最常出现的真实 Dota2 team_id（用于队徽 API）。
+export async function fetchLeagueTeamExternalIds(
+  leagueId: string
+): Promise<Map<string, string>> {
+  return withConnection(async (conn) => {
+    const [rows] = await conn.query(
+      `SELECT team_name, team_id, COUNT(*) AS cnt FROM (
+         SELECT mo.team_name_1 AS team_name, CAST(mi.radiant_team_id AS CHAR) AS team_id
+         FROM dwd_match_overview mo
+         JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
+         WHERE mo.league_id = ?
+           AND mo.team_name_1 IS NOT NULL AND mo.team_name_1 <> ''
+           AND mi.radiant_team_id IS NOT NULL AND mi.radiant_team_id <> 0
+         UNION ALL
+         SELECT mo.team_name_2, CAST(mi.dire_team_id AS CHAR)
+         FROM dwd_match_overview mo
+         JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
+         WHERE mo.league_id = ?
+           AND mo.team_name_2 IS NOT NULL AND mo.team_name_2 <> ''
+           AND mi.dire_team_id IS NOT NULL AND mi.dire_team_id <> 0
+       ) t
+       GROUP BY team_name, team_id`,
+      [leagueId, leagueId]
+    );
+    const counts = new Map<string, Map<string, number>>();
+    for (const r of rows as Array<Record<string, unknown>>) {
+      const name = String(r.team_name ?? "").trim();
+      const tid = String(r.team_id ?? "").trim();
+      const cnt = Number(r.cnt ?? 0);
+      if (!name || !tid || !/^\d+$/.test(tid)) continue;
+      const byId = counts.get(name) ?? new Map<string, number>();
+      byId.set(tid, (byId.get(tid) ?? 0) + cnt);
+      counts.set(name, byId);
+    }
+    const result = new Map<string, string>();
+    for (const [name, byId] of counts.entries()) {
+      let bestId = "";
+      let bestCnt = -1;
+      for (const [tid, c] of byId.entries()) {
+        if (c > bestCnt) {
+          bestCnt = c;
+          bestId = tid;
+        }
+      }
+      if (bestId) result.set(name, bestId);
+    }
+    return result;
+  });
+}
+
 // 拉取某联赛在比赛总览表里的队伍列表。
 // 有些新联赛只有 match_overview 队伍信息，尚未落入 player_positions；
 // 此时导入时先创建空阵容队伍，方便后续手工维护。
@@ -203,10 +254,12 @@ export async function fetchLeagueTeams(leagueId: string): Promise<LeagueTeamRow[
        ORDER BY match_count DESC, team_name`,
       [leagueId, leagueId]
     );
-    return (rows as Array<Record<string, unknown>>).map((r) => ({
-      team_name: String(r.team_name ?? "").trim(),
-      match_count: Number(r.match_count ?? 0),
-    })).filter((r) => r.team_name);
+    return (rows as Array<Record<string, unknown>>)
+      .map((r) => ({
+        team_name: String(r.team_name ?? "").trim(),
+        match_count: Number(r.match_count ?? 0),
+      }))
+      .filter((r) => r.team_name);
   });
 }
 
