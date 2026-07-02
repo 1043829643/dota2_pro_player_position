@@ -513,6 +513,7 @@ export interface LeagueImportResult {
   skipped_incomplete_teams: number;
   // 有完整 5 人但缺少补刀数据、无法计算分路的队伍（不编造位置，明确列出缺什么）
   missing_position_teams?: MissingPositionTeam[];
+  deduped_teams?: number;
 }
 
 interface BuiltPlayer {
@@ -553,6 +554,58 @@ export function getExistingLeagueIds(): Set<string> {
 
 function normalizeTeamName(name: string): string {
   return name.trim().split(/\s+/).join(" ");
+}
+
+function isRealExternalTeamId(id: string | null | undefined): boolean {
+  const tid = (id ?? "").trim();
+  return !!tid && /^\d+$/.test(tid) && tid.length <= 10 && tid !== "0";
+}
+
+/** 在同一联赛下查找已有战队：先按队名，再按真实 Dota2 team_id（避免 CSV 全名 vs 概览短名重复导入） */
+function findExistingTeamInTournament(
+  db: LocalStoreData,
+  tournamentId: number,
+  teamName: string,
+  externalTeamId: string
+): TeamRecord | undefined {
+  const normalized = normalizeTeamName(teamName);
+  const inTour = db.teams.filter((t) => t.tournament_id === tournamentId);
+
+  const byName = inTour.find((t) => normalizeTeamName(t.name) === normalized);
+  if (byName) return byName;
+
+  if (isRealExternalTeamId(externalTeamId)) {
+    return inTour.find((t) => t.team_id === externalTeamId);
+  }
+  return undefined;
+}
+
+/** 同一联赛内按真实 team_id 去重，保留阵容更完整/队名更短的一条 */
+function dedupeTeamsByExternalId(db: LocalStoreData, tournamentId: number): number {
+  const inTour = db.teams.filter((t) => t.tournament_id === tournamentId);
+  const groups = new Map<string, TeamRecord[]>();
+  for (const t of inTour) {
+    if (!isRealExternalTeamId(t.team_id)) continue;
+    const list = groups.get(t.team_id!) ?? [];
+    list.push(t);
+    groups.set(t.team_id!, list);
+  }
+  let removed = 0;
+  for (const [, group] of groups) {
+    if (group.length <= 1) continue;
+    group.sort((a, b) => {
+      const pa = db.players.filter((p) => p.team_id === a.id).length;
+      const pb = db.players.filter((p) => p.team_id === b.id).length;
+      if (pb !== pa) return pb - pa;
+      return a.name.length - b.name.length;
+    });
+    for (const dup of group.slice(1)) {
+      db.players = db.players.filter((p) => p.team_id !== dup.id);
+      db.teams = db.teams.filter((t) => t.id !== dup.id);
+      removed += 1;
+    }
+  }
+  return removed;
 }
 
 function teamTagFromName(name: string): string {
@@ -777,22 +830,23 @@ export function importLeagueFromRawRows(
     const teamName = normalizeTeamName(mt.team_name);
     if (!teamName) continue;
     builtTeamNames.add(teamName);
-    let team = db.teams.find(
-      (t) => t.tournament_id === tournament!.id && normalizeTeamName(t.name) === teamName
-    );
+    const extId = resolveTeamExternalId(teamName);
+    let team = findExistingTeamInTournament(db, tournament!.id, teamName, extId);
     if (!team) {
       team = {
         id: nextId(db.teams.map((t) => t.id)),
         tournament_id: tournament.id,
         name: teamName,
         short_name: teamTagFromName(teamName) || null,
-        team_id: resolveTeamExternalId(teamName),
+        team_id: extId,
         status: "缺失",
         created_at: now,
         updated_at: now,
       };
       db.teams.push(team);
     } else {
+      team.name = teamName;
+      team.team_id = extId;
       team.status = "缺失";
       team.updated_at = now;
     }
@@ -801,24 +855,24 @@ export function importLeagueFromRawRows(
   }
 
   for (const bt of builtTeams) {
-    let team = db.teams.find(
-      (t) => t.tournament_id === tournament!.id && t.name === bt.team_name
-    );
+    const extId = resolveTeamExternalId(bt.team_name);
+    let team = findExistingTeamInTournament(db, tournament!.id, bt.team_name, extId);
     if (!team) {
       team = {
         id: nextId(db.teams.map((t) => t.id)),
         tournament_id: tournament.id,
         name: bt.team_name,
         short_name: bt.team_tag || null,
-        team_id: resolveTeamExternalId(bt.team_name),
+        team_id: extId,
         status: "完整",
         created_at: now,
         updated_at: now,
       };
       db.teams.push(team);
     } else {
+      team.name = bt.team_name;
       team.short_name = bt.team_tag || null;
-      team.team_id = resolveTeamExternalId(bt.team_name);
+      team.team_id = extId;
       team.status = "完整";
       team.updated_at = now;
     }
@@ -844,9 +898,8 @@ export function importLeagueFromRawRows(
   for (const rawTeam of fallbackTeams) {
     const teamName = normalizeTeamName(rawTeam.team_name);
     if (!teamName || builtTeamNames.has(teamName)) continue;
-    const existing = db.teams.find(
-      (t) => t.tournament_id === tournament!.id && normalizeTeamName(t.name) === teamName
-    );
+    const extId = resolveTeamExternalId(teamName);
+    const existing = findExistingTeamInTournament(db, tournament!.id, teamName, extId);
     if (existing) continue;
     db.teams.push({
       id: nextId(db.teams.map((t) => t.id)),
@@ -861,6 +914,8 @@ export function importLeagueFromRawRows(
     emptyTeamsImported += 1;
   }
 
+  const dedupedTeams = dedupeTeamsByExternalId(db, tournament.id);
+
   saveData(db);
   return {
     league_id: String(leagueId),
@@ -870,6 +925,7 @@ export function importLeagueFromRawRows(
     empty_teams_imported: emptyTeamsImported,
     skipped_incomplete_teams: skippedIncomplete,
     missing_position_teams: missingPositionTeams,
+    deduped_teams: dedupedTeams,
   };
 }
 
