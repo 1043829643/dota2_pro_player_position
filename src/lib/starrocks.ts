@@ -69,6 +69,42 @@ export interface LeagueTeamRow {
   team_id?: string | null;
 }
 
+// 联赛名兜底：DB 维表缺名称时用 OpenDota（数据同步自 Valve，免 key）补全，内存缓存。
+const LEAGUE_NAME_CACHE = new Map<string, string>();
+const OPENDOTA_LEAGUE_URL = "https://api.opendota.com/api/leagues/";
+
+async function fetchOpenDotaLeagueName(leagueId: string): Promise<string> {
+  const id = String(leagueId).trim();
+  if (!id || !/^\d+$/.test(id)) return "";
+  const cached = LEAGUE_NAME_CACHE.get(id);
+  if (cached !== undefined) return cached;
+  try {
+    const res = await fetch(OPENDOTA_LEAGUE_URL + id, {
+      headers: { "User-Agent": "Mozilla/5.0" },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) return "";
+    const data = (await res.json()) as Record<string, unknown>;
+    const name = String(data?.name ?? "").trim();
+    if (name) LEAGUE_NAME_CACHE.set(id, name);
+    return name;
+  } catch {
+    return "";
+  }
+}
+
+// 批量补全若干联赛名（并发，忽略失败项）
+async function resolveLeagueNames(ids: string[]): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  await Promise.all(
+    ids.map(async (id) => {
+      const name = await fetchOpenDotaLeagueName(id);
+      if (name) result.set(String(id), name);
+    })
+  );
+  return result;
+}
+
 async function withConnection<T>(
   fn: (conn: mysql.Connection) => Promise<T>
 ): Promise<T> {
@@ -142,7 +178,7 @@ export async function listAllLeagues(): Promise<LeagueCatalogRow[]> {
       teamsByLeague.set(lid, list);
     }
 
-    return (summaryRows as Array<Record<string, unknown>>).map((r) => {
+    const rows = (summaryRows as Array<Record<string, unknown>>).map((r) => {
       const lid = String(r.league_id);
       const patches = String(r.patches ?? "")
         .split(",")
@@ -154,7 +190,7 @@ export async function listAllLeagues(): Promise<LeagueCatalogRow[]> {
       const rawName = String(r.league_name ?? "").trim();
       return {
         league_id: lid,
-        league_name: rawName || `未命名联赛 #${lid}`,
+        rawName,
         match_count: Number(r.match_count ?? 0),
         first_date: r.first_date == null ? null : String(r.first_date),
         last_date: r.last_date == null ? null : String(r.last_date),
@@ -162,6 +198,21 @@ export async function listAllLeagues(): Promise<LeagueCatalogRow[]> {
         teams,
       };
     });
+
+    // DB 维表没有名称的联赛，用 OpenDota 补全（免 key，失败则保留占位名）。
+    const missingIds = rows.filter((x) => !x.rawName).map((x) => x.league_id);
+    const resolved =
+      missingIds.length > 0 ? await resolveLeagueNames(missingIds) : new Map<string, string>();
+
+    return rows.map((x) => ({
+      league_id: x.league_id,
+      league_name: x.rawName || resolved.get(x.league_id) || `未命名联赛 #${x.league_id}`,
+      match_count: x.match_count,
+      first_date: x.first_date,
+      last_date: x.last_date,
+      patch_versions: x.patch_versions,
+      teams: x.teams,
+    }));
   });
 }
 
@@ -326,7 +377,9 @@ export async function fetchLeagueName(leagueId: string): Promise<string | null> 
       const name = String(list[0].league_name).trim();
       if (name) return name;
     }
-    return null;
+    // 维表没有名称时用 OpenDota 兜底
+    const fromOpenDota = await fetchOpenDotaLeagueName(leagueId);
+    return fromOpenDota || null;
   });
 }
 
