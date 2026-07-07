@@ -10,6 +10,39 @@ const STARROCKS_CONFIG = {
   database: process.env.STARROCKS_DB ?? "dwd_dota2",
 };
 
+const ANALYSIS_SCHEMA = "dota2_analysis";
+
+// 联赛名来自 pro_match_list / pro_match_list_2 / match_info_upload 维表。
+const LEAGUE_NAMES_CTE = `
+  league_names AS (
+    SELECT CAST(league_id AS CHAR) AS league_id, MAX(league_name) AS league_name
+    FROM (
+      SELECT league_id, league_name FROM ${ANALYSIS_SCHEMA}.pro_match_list
+      UNION ALL
+      SELECT league_id, league_name FROM ${ANALYSIS_SCHEMA}.pro_match_list_2
+      UNION ALL
+      SELECT league_id, league_name FROM ${ANALYSIS_SCHEMA}.match_info_upload
+    ) names
+    WHERE league_id IS NOT NULL AND league_name IS NOT NULL AND league_name <> ''
+    GROUP BY CAST(league_id AS CHAR)
+  )`;
+
+// match_info 按 match_id 去重（同场可能有多条记录）。
+const MATCH_INFO_DEDUP_CTE = `
+  match_info_dedup AS (
+    SELECT
+      CAST(match_id AS CHAR) AS match_id,
+      CAST(MAX(league_id) AS CHAR) AS league_id,
+      CAST(MAX(radiant_team_id) AS CHAR) AS radiant_team_id,
+      MAX(radiant_team_tag) AS radiant_team_tag,
+      CAST(MAX(dire_team_id) AS CHAR) AS dire_team_id,
+      MAX(dire_team_tag) AS dire_team_tag,
+      MIN(end_time) AS end_time
+    FROM ${ANALYSIS_SCHEMA}.match_info
+    WHERE league_id IS NOT NULL AND league_id > 0
+    GROUP BY CAST(match_id AS CHAR)
+  )`;
+
 export interface LeagueCatalogRow {
   league_id: string;
   league_name: string;
@@ -58,27 +91,45 @@ async function withConnection<T>(
 // 列出所有出现过的联赛（按比赛场次倒序），附带时间范围、版本号、参赛队伍
 export async function listAllLeagues(): Promise<LeagueCatalogRow[]> {
   return withConnection(async (conn) => {
-    // 不再要求联赛名非空：有比赛但无名的联赛（如名字维表尚未补全）也一并返回，
-    // 名字为空时前端展示为「未命名联赛 #<id>」。
     const [summaryRows] = await conn.query(
-      `SELECT league_id, MAX(league_name) AS league_name, COUNT(*) AS match_count,
-              DATE_FORMAT(MIN(start_date), '%Y-%m-%d') AS first_date,
-              DATE_FORMAT(MAX(start_date), '%Y-%m-%d') AS last_date,
-              group_concat(DISTINCT patch_version) AS patches
-       FROM dwd_match_overview
-       WHERE league_id IS NOT NULL AND league_id > 0
-       GROUP BY league_id
+      `WITH ${LEAGUE_NAMES_CTE},
+       ${MATCH_INFO_DEDUP_CTE},
+       league_patches AS (
+         SELECT CAST(league_id AS CHAR) AS league_id,
+                group_concat(DISTINCT patch_version) AS patches
+         FROM ${ANALYSIS_SCHEMA}.pro_match_list_2
+         WHERE league_id IS NOT NULL
+           AND patch_version IS NOT NULL AND patch_version <> ''
+         GROUP BY CAST(league_id AS CHAR)
+       )
+       SELECT
+         mi.league_id,
+         ln.league_name,
+         COUNT(*) AS match_count,
+         DATE_FORMAT(FROM_UNIXTIME(MIN(mi.end_time)), '%Y-%m-%d') AS first_date,
+         DATE_FORMAT(FROM_UNIXTIME(MAX(mi.end_time)), '%Y-%m-%d') AS last_date,
+         MAX(lp.patches) AS patches
+       FROM match_info_dedup mi
+       LEFT JOIN league_names ln ON ln.league_id = mi.league_id
+       LEFT JOIN league_patches lp ON lp.league_id = mi.league_id
+       GROUP BY mi.league_id, ln.league_name
        ORDER BY match_count DESC`
     );
 
     const [teamRows] = await conn.query(
-      `SELECT league_id, team_name FROM (
-         SELECT league_id, team_name_1 AS team_name FROM dwd_match_overview
-           WHERE team_name_1 IS NOT NULL AND team_name_1 <> ''
+      `WITH ${MATCH_INFO_DEDUP_CTE}
+       SELECT league_id, team_name FROM (
+         SELECT mi.league_id,
+                COALESCE(NULLIF(mi.radiant_team_tag, ''), mi.radiant_team_id) AS team_name
+         FROM match_info_dedup mi
+         WHERE mi.radiant_team_id IS NOT NULL AND mi.radiant_team_id <> '0'
          UNION
-         SELECT league_id, team_name_2 AS team_name FROM dwd_match_overview
-           WHERE team_name_2 IS NOT NULL AND team_name_2 <> ''
+         SELECT mi.league_id,
+                COALESCE(NULLIF(mi.dire_team_tag, ''), mi.dire_team_id) AS team_name
+         FROM match_info_dedup mi
+         WHERE mi.dire_team_id IS NOT NULL AND mi.dire_team_id <> '0'
        ) t
+       WHERE team_name IS NOT NULL AND team_name <> ''
        GROUP BY league_id, team_name`
     );
 
@@ -120,23 +171,19 @@ export async function fetchLeaguePlayerRows(
 ): Promise<LeaguePlayerRow[]> {
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
-      `SELECT
+      `WITH ${MATCH_INFO_DEDUP_CTE}
+       SELECT
          COALESCE(
-           NULLIF(CASE WHEN mp.team = 2 THEN mo.team_name_1 WHEN mp.team = 3 THEN mo.team_name_2 END, ''),
            NULLIF(CASE WHEN mp.team = 2 THEN mi.radiant_team_tag WHEN mp.team = 3 THEN mi.dire_team_tag END, ''),
-           CASE
-             WHEN mp.team = 2 THEN CAST(mi.radiant_team_id AS CHAR)
-             WHEN mp.team = 3 THEN CAST(mi.dire_team_id AS CHAR)
-           END
+           CASE WHEN mp.team = 2 THEN mi.radiant_team_id WHEN mp.team = 3 THEN mi.dire_team_id END
          ) AS team_name,
          mp.steamid,
          mp.name,
          mp.hits_5m,
          mp.lane_role
        FROM dwd_match_player_positions mp
-       JOIN dwd_match_overview mo ON mo.match_id = mp.match_id
-       LEFT JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
-       WHERE mo.league_id = ?
+       JOIN match_info_dedup mi ON CAST(mi.match_id AS BIGINT) = mp.match_id
+       WHERE mi.league_id = ?
          AND mp.steamid IS NOT NULL AND mp.steamid <> ''`,
       [leagueId]
     );
@@ -150,31 +197,24 @@ export async function fetchLeaguePlayerRows(
     }));
     if (positionRows.length > 0) return positionRows;
 
-    // 兜底：部分新/公开预选赛尚未写入 dwd_match_player_positions，
-    // 但 dota2_analysis.players 已有逐场选手，且 player_intervals2 里有逐分钟补刀/经济。
-    // 这里取每场 10 分钟(time=600)的真实补刀 lh 作为分路信号（与标准算法的 hits_5m 同义），
-    // 交给 buildLineups 按“人均补刀从高到低 = 1→5 号位”重建，纯用本届联赛数据判位。
+    // 兜底：无 dwd_match_player_positions 时，用 players + player_intervals2 重建。
     const [analysisRows] = await conn.query(
-      `SELECT
+      `WITH ${MATCH_INFO_DEDUP_CTE}
+       SELECT
          COALESCE(
-           NULLIF(CASE WHEN p.team = 2 THEN mo.team_name_1 WHEN p.team = 3 THEN mo.team_name_2 END, ''),
            NULLIF(CASE WHEN p.team = 2 THEN mi.radiant_team_tag WHEN p.team = 3 THEN mi.dire_team_tag END, ''),
-           CASE
-             WHEN p.team = 2 THEN CONCAT('Team ', mi.radiant_team_id)
-             WHEN p.team = 3 THEN CONCAT('Team ', mi.dire_team_id)
-           END
+           CASE WHEN p.team = 2 THEN CONCAT('Team ', mi.radiant_team_id) WHEN p.team = 3 THEN CONCAT('Team ', mi.dire_team_id) END
          ) AS team_name,
          CAST(p.steamid AS CHAR) AS steamid,
          COALESCE(NULLIF(pp.name, ''), NULLIF(p.persona, ''), CAST(p.steamid AS CHAR)) AS name,
          p.slot,
          CAST(pi.lh AS SIGNED) AS hits_5m
-       FROM dwd_match_overview mo
-       JOIN dota2_analysis.players p ON CAST(p.match_id AS BIGINT) = mo.match_id
-       LEFT JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
-       LEFT JOIN dota2_analysis.pro_players pp ON CAST(pp.steamid AS BIGINT) = p.steamid
-       LEFT JOIN dota2_analysis.player_intervals2 pi
+       FROM match_info_dedup mi
+       JOIN ${ANALYSIS_SCHEMA}.players p ON CAST(p.match_id AS BIGINT) = CAST(mi.match_id AS BIGINT)
+       LEFT JOIN ${ANALYSIS_SCHEMA}.pro_players pp ON CAST(pp.steamid AS BIGINT) = p.steamid
+       LEFT JOIN ${ANALYSIS_SCHEMA}.player_intervals2 pi
          ON pi.match_id = p.match_id AND pi.slot = p.slot AND pi.time = 600
-       WHERE mo.league_id = ?
+       WHERE mi.league_id = ?
          AND p.steamid IS NOT NULL`,
       [leagueId]
     );
@@ -195,30 +235,21 @@ export async function fetchLeagueTeamExternalIds(
 ): Promise<Map<string, string>> {
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
-      `SELECT team_name, team_id, COUNT(*) AS cnt FROM (
+      `WITH ${MATCH_INFO_DEDUP_CTE}
+       SELECT team_name, team_id, COUNT(*) AS cnt FROM (
          SELECT
-           COALESCE(
-             NULLIF(mo.team_name_1, ''),
-             NULLIF(mi.radiant_team_tag, ''),
-             CAST(mi.radiant_team_id AS CHAR)
-           ) AS team_name,
-           CAST(mi.radiant_team_id AS CHAR) AS team_id
-         FROM dwd_match_overview mo
-         JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
-         WHERE mo.league_id = ?
-           AND mi.radiant_team_id IS NOT NULL AND mi.radiant_team_id <> 0
+           COALESCE(NULLIF(mi.radiant_team_tag, ''), mi.radiant_team_id) AS team_name,
+           mi.radiant_team_id AS team_id
+         FROM match_info_dedup mi
+         WHERE mi.league_id = ?
+           AND mi.radiant_team_id IS NOT NULL AND mi.radiant_team_id <> '0'
          UNION ALL
          SELECT
-           COALESCE(
-             NULLIF(mo.team_name_2, ''),
-             NULLIF(mi.dire_team_tag, ''),
-             CAST(mi.dire_team_id AS CHAR)
-           ),
-           CAST(mi.dire_team_id AS CHAR)
-         FROM dwd_match_overview mo
-         JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
-         WHERE mo.league_id = ?
-           AND mi.dire_team_id IS NOT NULL AND mi.dire_team_id <> 0
+           COALESCE(NULLIF(mi.dire_team_tag, ''), mi.dire_team_id),
+           mi.dire_team_id
+         FROM match_info_dedup mi
+         WHERE mi.league_id = ?
+           AND mi.dire_team_id IS NOT NULL AND mi.dire_team_id <> '0'
        ) t
        WHERE team_name IS NOT NULL AND team_name <> ''
        GROUP BY team_name, team_id`,
@@ -250,34 +281,23 @@ export async function fetchLeagueTeamExternalIds(
   });
 }
 
-// 拉取某联赛在比赛总览表里的队伍列表。
-// 有些新联赛只有 match_overview 队伍信息，尚未落入 player_positions；
-// 此时导入时先创建空阵容队伍，方便后续手工维护。
+// 拉取某联赛在 match_info 里的队伍列表。
 export async function fetchLeagueTeams(leagueId: string): Promise<LeagueTeamRow[]> {
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
-      `SELECT team_name, COUNT(*) AS match_count FROM (
+      `WITH ${MATCH_INFO_DEDUP_CTE}
+       SELECT team_name, COUNT(*) AS match_count FROM (
          SELECT
-           COALESCE(
-             NULLIF(mo.team_name_1, ''),
-             NULLIF(mi.radiant_team_tag, ''),
-             CAST(mi.radiant_team_id AS CHAR)
-           ) AS team_name
-         FROM dwd_match_overview mo
-         JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
-         WHERE mo.league_id = ?
-           AND mi.radiant_team_id IS NOT NULL AND mi.radiant_team_id <> 0
+           COALESCE(NULLIF(mi.radiant_team_tag, ''), mi.radiant_team_id) AS team_name
+         FROM match_info_dedup mi
+         WHERE mi.league_id = ?
+           AND mi.radiant_team_id IS NOT NULL AND mi.radiant_team_id <> '0'
          UNION ALL
          SELECT
-           COALESCE(
-             NULLIF(mo.team_name_2, ''),
-             NULLIF(mi.dire_team_tag, ''),
-             CAST(mi.dire_team_id AS CHAR)
-           )
-         FROM dwd_match_overview mo
-         JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
-         WHERE mo.league_id = ?
-           AND mi.dire_team_id IS NOT NULL AND mi.dire_team_id <> 0
+           COALESCE(NULLIF(mi.dire_team_tag, ''), mi.dire_team_id)
+         FROM match_info_dedup mi
+         WHERE mi.league_id = ?
+           AND mi.dire_team_id IS NOT NULL AND mi.dire_team_id <> '0'
        ) t
        WHERE team_name IS NOT NULL AND team_name <> ''
        GROUP BY team_name
@@ -297,27 +317,16 @@ export async function fetchLeagueTeams(leagueId: string): Promise<LeagueTeamRow[
 export async function fetchLeagueName(leagueId: string): Promise<string | null> {
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
-      `SELECT MAX(league_name) AS league_name
-       FROM dwd_match_overview
-       WHERE league_id = ?`,
+      `WITH ${LEAGUE_NAMES_CTE}
+       SELECT league_name FROM league_names WHERE league_id = ?`,
       [leagueId]
     );
     const list = rows as Array<Record<string, unknown>>;
-    const dwdName = list.length > 0 && list[0].league_name != null
-      ? String(list[0].league_name).trim()
-      : "";
-    if (dwdName) return dwdName;
-
-    const [fallbackRows] = await conn.query(
-      `SELECT MAX(league_name) AS league_name
-       FROM dota2_analysis.pro_match_list_2
-       WHERE league_id = ?`,
-      [leagueId]
-    );
-    const fallback = fallbackRows as Array<Record<string, unknown>>;
-    if (fallback.length === 0 || fallback[0].league_name == null) return null;
-    const fallbackName = String(fallback[0].league_name).trim();
-    return fallbackName || null;
+    if (list.length > 0 && list[0].league_name != null) {
+      const name = String(list[0].league_name).trim();
+      if (name) return name;
+    }
+    return null;
   });
 }
 
@@ -328,11 +337,13 @@ export async function fetchLeagueMatchDateRange(leagueId: string): Promise<{
 }> {
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
-      `SELECT
-         DATE_FORMAT(MIN(start_date), '%Y-%m-%d %H:%i') AS first_at,
-         DATE_FORMAT(MAX(start_date), '%Y-%m-%d %H:%i') AS last_at
-       FROM dwd_match_overview
-       WHERE league_id = ? AND start_date IS NOT NULL`,
+      `WITH ${MATCH_INFO_DEDUP_CTE}
+       SELECT
+         DATE_FORMAT(FROM_UNIXTIME(MIN(mi.end_time)), '%Y-%m-%d %H:%i') AS first_at,
+         DATE_FORMAT(FROM_UNIXTIME(MAX(mi.end_time)), '%Y-%m-%d %H:%i') AS last_at
+       FROM match_info_dedup mi
+       WHERE mi.league_id = ?
+         AND mi.end_time IS NOT NULL AND mi.end_time > 0`,
       [leagueId]
     );
     const r = (rows as Array<Record<string, unknown>>)[0];
