@@ -493,7 +493,7 @@ export interface RawPlayerRow {
   steamid: string | null;
   name: string | null;
   hits_5m: number | null;
-  // 局内分路：1=安全路 2=中路 3=优势路 4=打野
+  // 局内分路：1=优势路(1/5号位) 2=中路(2号位) 3=劣势路(3/4号位) 4=打野
   lane_role?: number | null;
   slot?: number | null;
 }
@@ -528,7 +528,7 @@ interface BuiltPlayer {
   count: number;
   avgHits: number;
   hasHits: boolean;
-  // 主分路（该联赛内众数 lane_role）：1=安全路 2=中路 3=优势路 4=打野；无数据为 null
+  // 主分路（该联赛内众数 lane_role）：1=优势路 2=中路 3=劣势路 4=打野；无数据为 null
   laneRole: number | null;
 }
 
@@ -690,9 +690,9 @@ function syntheticTeamId(leagueId: string, teamName: string): string {
 
 // 重建阵容：每队取出场最多的 5 人，用「局内分路 lane_role + 5 分钟补刀」精确判位：
 //   中路(lane_role=2) → 2 号位；
-//   安全路(lane_role=1) 两人：补刀多 = 1 号位，补刀少 = 5 号位；
-//   优势路(lane_role=3) 两人：补刀多 = 3 号位，补刀少 = 4 号位。
-// 分路取该选手在本届联赛的众数 lane_role。若分路数据不规整（非 2安全/1中/2优势），
+//   优势路(lane_role=1) 两人：补刀多 = 1 号位，补刀少 = 5 号位；
+//   劣势路(lane_role=3) 两人：补刀多 = 3 号位，补刀少 = 4 号位。
+// 分路取该选手在本届联赛的众数 lane_role。若分路数据不规整（非 2优势/1中/2劣势），
 // 退化为“按人均补刀从高到低 = 1→5 号位”。slot 只是单场槽位、与分路无关，不参与计算。
 // 若某队有 5 人但完全没有补刀数据，则不编造位置，列入 missingPositionTeams。
 function buildLineups(
@@ -810,20 +810,20 @@ function buildLineups(
 
 // 用局内分路 + 5 分钟补刀给 5 名选手分配 1~5 号位。
 function assignPositions(top5: BuiltPlayer[]): Record<number, BuiltPlayer> {
-  const safe = top5.filter((p) => p.laneRole === 1);
+  const advLane = top5.filter((p) => p.laneRole === 1);
   const mid = top5.filter((p) => p.laneRole === 2);
-  const off = top5.filter((p) => p.laneRole === 3);
+  const hardLane = top5.filter((p) => p.laneRole === 3);
 
-  // 标准阵型：安全路 2 人、中路 1 人、优势路 2 人 → 用补刀区分核心/辅助。
-  if (safe.length === 2 && mid.length === 1 && off.length === 2) {
-    const safeSorted = safe.slice().sort((a, b) => b.avgHits - a.avgHits);
-    const offSorted = off.slice().sort((a, b) => b.avgHits - a.avgHits);
+  // 标准阵型：优势路 2 人、中路 1 人、劣势路 2 人 → 用补刀区分核心/辅助。
+  if (advLane.length === 2 && mid.length === 1 && hardLane.length === 2) {
+    const advSorted = advLane.slice().sort((a, b) => b.avgHits - a.avgHits);
+    const hardSorted = hardLane.slice().sort((a, b) => b.avgHits - a.avgHits);
     return {
-      1: safeSorted[0], // 安全路核心
+      1: advSorted[0], // 优势路核心
       2: mid[0], // 中路
-      3: offSorted[0], // 优势路核心
-      4: offSorted[1], // 优势路辅助
-      5: safeSorted[1], // 安全路辅助
+      3: hardSorted[0], // 劣势路核心
+      4: hardSorted[1], // 劣势路辅助
+      5: advSorted[1], // 优势路辅助
     };
   }
 

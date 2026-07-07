@@ -5,13 +5,58 @@ import {
   fetchLeagueTeams,
   fetchLeagueTeamExternalIds,
   fetchLeagueMatchDateRange,
+  type LeaguePlayerRow,
+  type LeagueTeamRow,
 } from "@/lib/starrocks";
 import { importLeagueFromRawRows, type LeagueImportResult, dedupeAllTournamentsInStore } from "@/lib/local-store";
+import { fetchTeamInfos } from "@/lib/teamid-detect";
 
 export const dynamic = "force-dynamic";
 
 interface ImportBody {
   league_ids?: unknown;
+}
+
+/** overview 队名缺失时 SQL 会回退为 team_id 字符串，这里用官方 API 还原为真实队名 */
+async function hydrateNumericTeamNames(
+  rows: LeaguePlayerRow[],
+  teams: LeagueTeamRow[],
+  externalIds: Map<string, string>
+): Promise<void> {
+  const numericIds = new Set<string>();
+  const collect = (name: string | null | undefined) => {
+    const n = (name ?? "").trim();
+    if (/^\d{4,10}$/.test(n)) numericIds.add(n);
+  };
+  for (const r of rows) collect(r.team_name);
+  for (const t of teams) collect(t.team_name);
+  for (const name of externalIds.keys()) collect(name);
+
+  if (numericIds.size === 0) return;
+
+  const infos = await fetchTeamInfos([...numericIds]);
+  const idToName = new Map<string, string>();
+  for (const id of numericIds) {
+    const info = infos[id];
+    const label = (info?.name || info?.tag || "").trim();
+    if (label) idToName.set(id, label);
+  }
+  if (idToName.size === 0) return;
+
+  for (const r of rows) {
+    const n = (r.team_name ?? "").trim();
+    if (idToName.has(n)) r.team_name = idToName.get(n)!;
+  }
+  for (const t of teams) {
+    const n = t.team_name.trim();
+    if (idToName.has(n)) t.team_name = idToName.get(n)!;
+  }
+  for (const [key, tid] of [...externalIds.entries()]) {
+    if (idToName.has(key)) {
+      externalIds.delete(key);
+      externalIds.set(idToName.get(key)!, tid);
+    }
+  }
 }
 
 // POST /api/leagues/import  body: { league_ids: string[] }
@@ -45,6 +90,7 @@ export async function POST(req: NextRequest) {
         fetchLeagueTeamExternalIds(leagueId),
         fetchLeagueMatchDateRange(leagueId),
       ]);
+      await hydrateNumericTeamNames(rows, teams, externalIds);
       const teamsWithIds = teams.map((t) => ({
         ...t,
         team_id: externalIds.get(t.team_name) ?? null,

@@ -25,7 +25,7 @@ export interface LeaguePlayerRow {
   steamid: string | null;
   name: string | null;
   hits_5m: number | null;
-  // 局内分路：1=安全路 2=中路 3=优势路 4=打野。用于精确判位。
+  // 局内分路：1=优势路(1/5号位) 2=中路(2号位) 3=劣势路(3/4号位) 4=打野。用于精确判位。
   lane_role?: number | null;
   slot?: number | null;
 }
@@ -121,17 +121,21 @@ export async function fetchLeaguePlayerRows(
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
       `SELECT
-         CASE
-           WHEN mp.team = 2 THEN mo.team_name_1
-           WHEN mp.team = 3 THEN mo.team_name_2
-           ELSE NULL
-         END AS team_name,
+         COALESCE(
+           NULLIF(CASE WHEN mp.team = 2 THEN mo.team_name_1 WHEN mp.team = 3 THEN mo.team_name_2 END, ''),
+           NULLIF(CASE WHEN mp.team = 2 THEN mi.radiant_team_tag WHEN mp.team = 3 THEN mi.dire_team_tag END, ''),
+           CASE
+             WHEN mp.team = 2 THEN CAST(mi.radiant_team_id AS CHAR)
+             WHEN mp.team = 3 THEN CAST(mi.dire_team_id AS CHAR)
+           END
+         ) AS team_name,
          mp.steamid,
          mp.name,
          mp.hits_5m,
          mp.lane_role
        FROM dwd_match_player_positions mp
        JOIN dwd_match_overview mo ON mo.match_id = mp.match_id
+       LEFT JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
        WHERE mo.league_id = ?
          AND mp.steamid IS NOT NULL AND mp.steamid <> ''`,
       [leagueId]
@@ -192,20 +196,31 @@ export async function fetchLeagueTeamExternalIds(
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
       `SELECT team_name, team_id, COUNT(*) AS cnt FROM (
-         SELECT mo.team_name_1 AS team_name, CAST(mi.radiant_team_id AS CHAR) AS team_id
+         SELECT
+           COALESCE(
+             NULLIF(mo.team_name_1, ''),
+             NULLIF(mi.radiant_team_tag, ''),
+             CAST(mi.radiant_team_id AS CHAR)
+           ) AS team_name,
+           CAST(mi.radiant_team_id AS CHAR) AS team_id
          FROM dwd_match_overview mo
          JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
          WHERE mo.league_id = ?
-           AND mo.team_name_1 IS NOT NULL AND mo.team_name_1 <> ''
            AND mi.radiant_team_id IS NOT NULL AND mi.radiant_team_id <> 0
          UNION ALL
-         SELECT mo.team_name_2, CAST(mi.dire_team_id AS CHAR)
+         SELECT
+           COALESCE(
+             NULLIF(mo.team_name_2, ''),
+             NULLIF(mi.dire_team_tag, ''),
+             CAST(mi.dire_team_id AS CHAR)
+           ),
+           CAST(mi.dire_team_id AS CHAR)
          FROM dwd_match_overview mo
          JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
          WHERE mo.league_id = ?
-           AND mo.team_name_2 IS NOT NULL AND mo.team_name_2 <> ''
            AND mi.dire_team_id IS NOT NULL AND mi.dire_team_id <> 0
        ) t
+       WHERE team_name IS NOT NULL AND team_name <> ''
        GROUP BY team_name, team_id`,
       [leagueId, leagueId]
     );
@@ -242,14 +257,29 @@ export async function fetchLeagueTeams(leagueId: string): Promise<LeagueTeamRow[
   return withConnection(async (conn) => {
     const [rows] = await conn.query(
       `SELECT team_name, COUNT(*) AS match_count FROM (
-         SELECT team_name_1 AS team_name
-         FROM dwd_match_overview
-         WHERE league_id = ? AND team_name_1 IS NOT NULL AND team_name_1 <> ''
+         SELECT
+           COALESCE(
+             NULLIF(mo.team_name_1, ''),
+             NULLIF(mi.radiant_team_tag, ''),
+             CAST(mi.radiant_team_id AS CHAR)
+           ) AS team_name
+         FROM dwd_match_overview mo
+         JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
+         WHERE mo.league_id = ?
+           AND mi.radiant_team_id IS NOT NULL AND mi.radiant_team_id <> 0
          UNION ALL
-         SELECT team_name_2 AS team_name
-         FROM dwd_match_overview
-         WHERE league_id = ? AND team_name_2 IS NOT NULL AND team_name_2 <> ''
+         SELECT
+           COALESCE(
+             NULLIF(mo.team_name_2, ''),
+             NULLIF(mi.dire_team_tag, ''),
+             CAST(mi.dire_team_id AS CHAR)
+           )
+         FROM dwd_match_overview mo
+         JOIN dota2_analysis.match_info mi ON CAST(mi.match_id AS BIGINT) = mo.match_id
+         WHERE mo.league_id = ?
+           AND mi.dire_team_id IS NOT NULL AND mi.dire_team_id <> 0
        ) t
+       WHERE team_name IS NOT NULL AND team_name <> ''
        GROUP BY team_name
        ORDER BY match_count DESC, team_name`,
       [leagueId, leagueId]
