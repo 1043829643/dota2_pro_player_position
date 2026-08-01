@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import { isBlobStoreEnabled, loadBlob, saveBlob } from "./blob-store";
 import { fetchLeagueMatchDateRange } from "./starrocks";
+import { ensureProPlayerInfoLoaded, getProPlayerName } from "./pro-player-info";
 
 const BLOB_KEY = "local_store";
 
@@ -152,6 +153,67 @@ export function listTournamentSummaries() {
       if (tierCmp !== 0) return tierCmp;
       return b.updated_at.localeCompare(a.updated_at);
     });
+}
+
+// 对外公开只读接口用：一次性返回全量「联赛 → 战队 → 1~5 号位选手」数据。
+// 用 Map 建索引，避免按 tournament/team 反复 filter 的 O(n²) 扫描。
+export function listAllPositions() {
+  const db = loadData();
+
+  const teamsByTournament = new Map<number, TeamRecord[]>();
+  for (const team of db.teams) {
+    const list = teamsByTournament.get(team.tournament_id) ?? [];
+    list.push(team);
+    teamsByTournament.set(team.tournament_id, list);
+  }
+
+  const playersByTeam = new Map<number, PlayerRecord[]>();
+  for (const p of db.players) {
+    const list = playersByTeam.get(p.team_id) ?? [];
+    list.push(p);
+    playersByTeam.set(p.team_id, list);
+  }
+
+  const tournaments = db.tournaments.map((t) => {
+    const teams = (teamsByTournament.get(t.id) ?? [])
+      .slice()
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((team) => {
+        const players = (playersByTeam.get(team.id) ?? [])
+          .slice()
+          .sort((a, b) => a.position - b.position)
+          .map((p) => ({
+            position: p.position,
+            nickname: p.nickname,
+            steamid64: p.steamid64,
+          }));
+        return {
+          id: team.id,
+          name: team.name,
+          short_name: team.short_name,
+          team_id: team.team_id,
+          status: team.status,
+          players,
+        };
+      });
+    return {
+      id: t.id,
+      name: t.name,
+      league_id: t.league_id,
+      event_tier: t.event_tier ?? classifyTournamentTier(t.name),
+      match_first_at: t.match_first_at ?? null,
+      match_last_at: t.match_last_at ?? null,
+      teams,
+    };
+  });
+
+  return {
+    generated_at: new Date().toISOString(),
+    tournament_count: tournaments.length,
+    team_count: db.teams.length,
+    player_count: db.players.length,
+    tournaments,
+  };
 }
 
 export function createTournament(name: string, leagueId: string) {
@@ -743,12 +805,16 @@ function buildLineups(
     const avgHits = st.hits.length
       ? st.hits.reduce((a, b) => a + b, 0) / st.hits.length
       : 0;
-    let bestName = sid;
-    let bestNameCount = -1;
-    for (const [n, c] of st.names.entries()) {
-      if (c > bestNameCount) {
-        bestNameCount = c;
-        bestName = n;
+    // 优先用 Dota2 官方规范名（需导入前 ensureProPlayerInfoLoaded），
+    // 查不到再退回该选手在本联赛出现最多的当场游戏名，最后兜底 steamid。
+    let bestName = getProPlayerName(sid) ?? sid;
+    if (bestName === sid) {
+      let bestNameCount = -1;
+      for (const [n, c] of st.names.entries()) {
+        if (c > bestNameCount) {
+          bestNameCount = c;
+          bestName = n;
+        }
       }
     }
     let laneRole: number | null = null;
@@ -1078,6 +1144,39 @@ export async function enrichTournamentMatchDates(): Promise<number> {
   }
   if (updated > 0) saveData(db);
   return updated;
+}
+
+// 用 Dota2 官方规范名回填本地库中所有历史选手名（按 steamid64 匹配）。
+// 只更新能在官方名单中查到的选手，查不到的保留原名。
+export async function refreshAllPlayerNamesFromProApi(): Promise<{
+  cache_size: number;
+  checked: number;
+  updated: number;
+  unresolved: number;
+}> {
+  const cacheSize = await ensureProPlayerInfoLoaded(true);
+  const db = loadData();
+  const now = new Date().toISOString();
+  let checked = 0;
+  let updated = 0;
+  let unresolved = 0;
+  for (const player of db.players) {
+    const sid = (player.steamid64 ?? "").trim();
+    if (!sid) continue;
+    checked += 1;
+    const canonical = getProPlayerName(sid);
+    if (!canonical) {
+      unresolved += 1;
+      continue;
+    }
+    if (player.nickname !== canonical) {
+      player.nickname = canonical;
+      player.updated_at = now;
+      updated += 1;
+    }
+  }
+  if (updated > 0) saveData(db);
+  return { cache_size: cacheSize, checked, updated, unresolved };
 }
 
 // 启动时从远端 blob 拉取并落到本地文件；远端为空则用本地（种子）数据初始化远端。

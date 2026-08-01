@@ -332,6 +332,85 @@ export async function fetchLeagueTeamExternalIds(
   });
 }
 
+/**
+ * 返回同一联赛内、同一队名标签且完整五人阵容一致时关联的全部 team_id。
+ * key 格式：`${normalized_team_tag}\0${sorted_steamids.join(",")}`。
+ *
+ * 读取后分别按 match_id 与 (match_id, slot) 在内存中去重，避免重复上传的
+ * 比赛或选手记录影响阵容比对结果。
+ */
+export async function fetchLeagueSameRosterTeamIds(
+  leagueId: string
+): Promise<Map<string, string[]>> {
+  return withConnection(async (conn) => {
+    const [matchRows] = await conn.query(
+      `SELECT match_id, radiant_team_id, radiant_team_tag, dire_team_id, dire_team_tag
+       FROM ${ANALYSIS_SCHEMA}.match_info
+       WHERE league_id = ?`,
+      [leagueId]
+    );
+
+    const matchesById = new Map<string, Record<string, unknown>>();
+    for (const row of matchRows as Array<Record<string, unknown>>) {
+      const matchId = String(row.match_id ?? "").trim();
+      if (matchId) matchesById.set(matchId, row);
+    }
+    const matchIds = Array.from(matchesById.keys());
+    if (matchIds.length === 0) return new Map();
+
+    const placeholders = matchIds.map(() => "?").join(",");
+    const [playerRows] = await conn.query(
+      `SELECT match_id, slot, steamid, team
+       FROM ${ANALYSIS_SCHEMA}.players
+       WHERE match_id IN (${placeholders})`,
+      matchIds
+    );
+
+    const playersByMatchSide = new Map<string, string[]>();
+    const seenPlayerSlots = new Set<string>();
+    for (const row of playerRows as Array<Record<string, unknown>>) {
+      const matchId = String(row.match_id ?? "").trim();
+      const slot = Number(row.slot);
+      const team = Number(row.team);
+      const steamid = String(row.steamid ?? "").trim();
+      const slotKey = `${matchId}\u0000${slot}`;
+      if (!matchId || !steamid || (team !== 2 && team !== 3) || seenPlayerSlots.has(slotKey)) {
+        continue;
+      }
+      seenPlayerSlots.add(slotKey);
+      const sideKey = `${matchId}\u0000${team}`;
+      const roster = playersByMatchSide.get(sideKey) ?? [];
+      roster.push(steamid);
+      playersByMatchSide.set(sideKey, roster);
+    }
+
+    const teamIdsByRoster = new Map<string, Set<string>>();
+    for (const [matchId, match] of matchesById.entries()) {
+      for (const [side, idField, tagField] of [
+        [2, "radiant_team_id", "radiant_team_tag"],
+        [3, "dire_team_id", "dire_team_tag"],
+      ] as const) {
+        const teamId = String(match[idField] ?? "").trim();
+        const tag = String(match[tagField] ?? "").trim();
+        const roster = playersByMatchSide.get(`${matchId}\u0000${side}`) ?? [];
+        const uniqueRoster = Array.from(new Set(roster)).sort();
+        if (!teamId || teamId === "0" || !tag || uniqueRoster.length !== 5) continue;
+
+        const key = `${tag.toLocaleLowerCase()}\u0000${uniqueRoster.join(",")}`;
+        const ids = teamIdsByRoster.get(key) ?? new Set<string>();
+        ids.add(teamId);
+        teamIdsByRoster.set(key, ids);
+      }
+    }
+
+    const result = new Map<string, string[]>();
+    for (const [key, ids] of teamIdsByRoster.entries()) {
+      if (ids.size > 1) result.set(key, Array.from(ids).sort());
+    }
+    return result;
+  });
+}
+
 // 拉取某联赛在 match_info 里的队伍列表。
 export async function fetchLeagueTeams(leagueId: string): Promise<LeagueTeamRow[]> {
   return withConnection(async (conn) => {

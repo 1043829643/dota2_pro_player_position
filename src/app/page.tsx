@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,6 +58,7 @@ export default function HomePage() {
   const [newLeagueId, setNewLeagueId] = useState("");
   const [creating, setCreating] = useState(false);
   const [tierFilter, setTierFilter] = useState<"全部" | "顶级赛事" | "预选赛">("全部");
+  const [sortBy, setSortBy] = useState<"default" | "end_desc">("default");
   const [openExport, setOpenExport] = useState(false);
   const [exportTier, setExportTier] = useState<"all" | "top" | "qualifier">("all");
   const [exportFormat, setExportFormat] = useState<"full" | "ids">("full");
@@ -152,10 +153,27 @@ export default function HomePage() {
     return <Badge className="bg-violet-100 text-violet-700 border-violet-200">{tier}</Badge>;
   };
 
-  const filteredTournaments = tournaments.filter((t) => {
-    if (tierFilter === "全部") return true;
-    return t.event_tier === tierFilter;
-  });
+  const parseMatchTime = (value: string | null) => {
+    if (!value) return null;
+    const ts = new Date(value.replace(" ", "T")).getTime();
+    return Number.isNaN(ts) ? null : ts;
+  };
+
+  const displayedTournaments = useMemo(() => {
+    const filtered = tournaments.filter((t) => {
+      if (tierFilter === "全部") return true;
+      return t.event_tier === tierFilter;
+    });
+    if (sortBy !== "end_desc") return filtered;
+    return [...filtered].sort((a, b) => {
+      const ta = parseMatchTime(a.match_last_at);
+      const tb = parseMatchTime(b.match_last_at);
+      if (ta == null && tb == null) return 0;
+      if (ta == null) return 1;
+      if (tb == null) return -1;
+      return tb - ta;
+    });
+  }, [tournaments, tierFilter, sortBy]);
 
   const handleExport = async () => {
     setExporting(true);
@@ -265,18 +283,37 @@ export default function HomePage() {
         </div>
 
         {/* 比赛列表 */}
-        <div className="flex items-center gap-2 mb-4">
-          <span className="text-sm text-slate-500">筛选：</span>
-          {(["全部", "顶级赛事", "预选赛"] as const).map((tier) => (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-500">筛选：</span>
+            {(["全部", "顶级赛事", "预选赛"] as const).map((tier) => (
+              <Button
+                key={tier}
+                variant={tierFilter === tier ? "default" : "outline"}
+                size="sm"
+                onClick={() => setTierFilter(tier)}
+              >
+                {tier}
+              </Button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-500">排序：</span>
             <Button
-              key={tier}
-              variant={tierFilter === tier ? "default" : "outline"}
+              variant={sortBy === "default" ? "default" : "outline"}
               size="sm"
-              onClick={() => setTierFilter(tier)}
+              onClick={() => setSortBy("default")}
             >
-              {tier}
+              默认
             </Button>
-          ))}
+            <Button
+              variant={sortBy === "end_desc" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setSortBy("end_desc")}
+            >
+              结束时间倒序
+            </Button>
+          </div>
         </div>
 
         {loading ? (
@@ -285,7 +322,7 @@ export default function HomePage() {
               <Skeleton key={i} className="h-44 rounded-xl" />
             ))}
           </div>
-        ) : filteredTournaments.length === 0 ? (
+        ) : displayedTournaments.length === 0 ? (
           <div className="text-center py-24">
             <Trophy className="w-16 h-16 text-slate-300 mx-auto mb-4" />
             <h2 className="text-xl font-semibold text-slate-600 mb-2">当前筛选无比赛</h2>
@@ -293,7 +330,7 @@ export default function HomePage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredTournaments.map((t) => (
+            {displayedTournaments.map((t) => (
               <Card
                 key={t.id}
                 className="cursor-pointer hover:shadow-lg transition-all duration-200 border border-slate-200 hover:border-indigo-300 group"

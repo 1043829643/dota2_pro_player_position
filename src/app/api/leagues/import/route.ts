@@ -10,6 +10,7 @@ import {
 } from "@/lib/starrocks";
 import { importLeagueFromRawRows, type LeagueImportResult, dedupeAllTournamentsInStore } from "@/lib/local-store";
 import { fetchTeamInfos } from "@/lib/teamid-detect";
+import { ensureProPlayerInfoLoaded } from "@/lib/pro-player-info";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,9 @@ export async function POST(req: NextRequest) {
 
   const results: LeagueImportResult[] = [];
   const errors: Array<{ league_id: string; error: string }> = [];
+
+  // 导入前预加载官方规范名，供 buildLineups 同步查询。
+  await ensureProPlayerInfoLoaded();
 
   for (const leagueId of leagueIds) {
     try {

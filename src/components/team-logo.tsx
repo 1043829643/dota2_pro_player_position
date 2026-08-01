@@ -108,7 +108,7 @@ export function TeamLogo({
         src={info.logo_url}
         alt={info.name || name}
         title={info.name || name}
-        className={`${radius} object-contain bg-white border border-slate-200 shrink-0 ${className}`}
+        className={`${radius} object-contain bg-slate-800 border border-slate-700 p-0.5 shrink-0 ${className}`}
         style={style}
       />
     );

@@ -63,6 +63,7 @@ interface Team {
   name: string;
   short_name: string | null;
   team_id: string | null;
+  team_ids?: string[];
   status: string;
   summary: string;
   players: Player[];
@@ -317,8 +318,11 @@ export default function TournamentPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {team.team_id && (
-                    <p className="text-xs text-slate-400 mb-2">Team ID: {team.team_id}</p>
+                  {(team.team_ids?.length || team.team_id) && (
+                    <p className="text-xs text-slate-400 mb-2">
+                      {team.team_ids && team.team_ids.length > 1 ? "关联 Team ID: " : "Team ID: "}
+                      {(team.team_ids?.length ? team.team_ids : [team.team_id]).join("、")}
+                    </p>
                   )}
                   <div className="bg-slate-50 rounded-lg p-3">
                     {team.summary ? (
