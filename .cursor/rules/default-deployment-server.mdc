@@ -1,0 +1,11 @@
+---
+description: Default production deployment target
+alwaysApply: true
+---
+
+# Default Deployment Server
+
+- Unless the user explicitly supplies another target, deploy this project to `root@8.140.222.233` using the private key at `C:\Users\Admin\.ssh\dota2_aliyun_cursor`.
+- The production checkout is `/opt/dota2_pro_player_position` and runs through the `dota2-position` systemd service.
+- Before deployment, inspect the remote working tree and preserve runtime data such as `data/local-store.json` and `data/manual-records.json`.
+- Deploy the requested branch, run the production build, restart `dota2-position`, and verify `http://127.0.0.1:5000/dota2pro/` on the server.
