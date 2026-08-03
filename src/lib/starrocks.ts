@@ -1,4 +1,10 @@
 import mysql from "mysql2/promise";
+import {
+  fetchOpenDotaLaneRoles,
+  fetchStratzLaneRoles,
+  type LaneRole,
+  type MatchPlayerLaneRoles,
+} from "./external-lane-roles";
 
 // StarRocks 兼容 MySQL 协议，这里直连只读账号查询联赛与比赛明细。
 // 允许通过环境变量覆盖，缺省使用既有只读账号。
@@ -61,6 +67,7 @@ export interface LeaguePlayerRow {
   // 局内分路：1=优势路(1/5号位) 2=中路(2号位) 3=劣势路(3/4号位) 4=打野。用于精确判位。
   lane_role?: number | null;
   slot?: number | null;
+  lane_source?: "dwd" | "opendota" | "stratz" | "intervals" | "hero_status" | null;
 }
 
 export interface LeagueTeamRow {
@@ -216,7 +223,181 @@ export async function listAllLeagues(): Promise<LeagueCatalogRow[]> {
   });
 }
 
-// 拉取某联赛的逐场选手明细，用于启发式重建阵容
+interface MatchSideRow {
+  match_id: string;
+  radiant_team_id: string;
+  radiant_team_tag: string;
+  dire_team_id: string;
+  dire_team_tag: string;
+}
+
+interface BasePlayerRow extends LeaguePlayerRow {
+  match_id: string;
+  team: number;
+  slot: number;
+}
+
+interface CoordinateSample {
+  match_id: string;
+  slot: number;
+  log_index: number;
+  x: number;
+  y: number;
+}
+
+function finitePlaceholders(values: string[]): string {
+  if (values.length === 0) throw new Error("有限 match_id 集合不能为空");
+  return values.map(() => "?").join(",");
+}
+
+function mapTeamName(match: MatchSideRow, team: number): string {
+  if (team === 2) return match.radiant_team_tag || match.radiant_team_id;
+  if (team === 3) return match.dire_team_tag || match.dire_team_id;
+  return "";
+}
+
+function mergeLaneRoles(
+  target: Map<string, { role: LaneRole; source: LeaguePlayerRow["lane_source"] }>,
+  source: MatchPlayerLaneRoles,
+  sourceName: NonNullable<LeaguePlayerRow["lane_source"]>
+): void {
+  for (const [matchId, players] of source.entries()) {
+    for (const [steamid, role] of players.entries()) {
+      const key = `${matchId}\u0000${steamid}`;
+      if (!target.has(key)) target.set(key, { role, source: sourceName });
+    }
+  }
+}
+
+function matchesMissingLanes(
+  rows: BasePlayerRow[],
+  lanes: Map<string, { role: LaneRole; source: LeaguePlayerRow["lane_source"] }>
+): string[] {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    if (!row.steamid || lanes.has(`${row.match_id}\u0000${row.steamid}`)) continue;
+    ids.add(row.match_id);
+  }
+  return [...ids];
+}
+
+/**
+ * 用给定前期坐标热区判路。数据库坐标是世界坐标的 1/128；
+ * 区域与 OpenDota/gem 的 45% 主导热区规则一致。
+ */
+export function classifyLaneFromCoordinates(
+  samples: Array<{ x: number; y: number }>,
+  team: number
+): LaneRole | null {
+  if (samples.length < 6 || (team !== 2 && team !== 3)) return null;
+  const counts = new Map<LaneRole, number>();
+  let valid = 0;
+  for (const sample of samples) {
+    const wx = sample.x * 128;
+    const wy = sample.y * 128;
+    if (!Number.isFinite(wx) || !Number.isFinite(wy)) continue;
+    valid += 1;
+    let radiantZone: 1 | 2 | 3 | 4 | null = null;
+    if (Math.abs(wx - wy) < 2000 && wx > 10500 && wx < 22000) {
+      radiantZone = 2;
+    } else if (wy < 12500 || (wx > 20000 && wy < 16000)) {
+      radiantZone = 1;
+    } else if (wx < 12500 && wy > 19000) {
+      radiantZone = 3;
+    } else if (wx >= 12500 && wx <= 20000 && wy >= 12500 && wy <= 19000) {
+      radiantZone = 4;
+    }
+    if (radiantZone == null) continue;
+    const role =
+      team === 3 && radiantZone === 1
+        ? 3
+        : team === 3 && radiantZone === 3
+          ? 1
+          : radiantZone;
+    counts.set(role, (counts.get(role) ?? 0) + 1);
+  }
+  if (valid < 6 || counts.size === 0) return null;
+  let dominant: LaneRole | null = null;
+  let dominantCount = 0;
+  for (const [role, count] of counts.entries()) {
+    if (count > dominantCount) {
+      dominant = role;
+      dominantCount = count;
+    }
+  }
+  return dominant && dominantCount / valid >= 0.45 ? dominant : 5;
+}
+
+function coordinateRoles(
+  samples: CoordinateSample[],
+  players: BasePlayerRow[]
+): MatchPlayerLaneRoles {
+  const samplesBySlot = new Map<string, Array<{ x: number; y: number }>>();
+  for (const sample of samples) {
+    const key = `${sample.match_id}\u0000${sample.slot}`;
+    const list = samplesBySlot.get(key) ?? [];
+    list.push({ x: sample.x, y: sample.y });
+    samplesBySlot.set(key, list);
+  }
+  const result: MatchPlayerLaneRoles = new Map();
+  for (const player of players) {
+    if (!player.steamid) continue;
+    const role = classifyLaneFromCoordinates(
+      samplesBySlot.get(`${player.match_id}\u0000${player.slot}`) ?? [],
+      player.team
+    );
+    if (!role) continue;
+    const byPlayer = result.get(player.match_id) ?? new Map<string, LaneRole>();
+    byPlayer.set(player.steamid, role);
+    result.set(player.match_id, byPlayer);
+  }
+  return result;
+}
+
+async function fetchCoordinateSamples(
+  conn: mysql.Connection,
+  table: "player_intervals2" | "hero_status_update",
+  matchIds: string[],
+  startTime: number,
+  endTime: number
+): Promise<CoordinateSample[]> {
+  const placeholders = finitePlaceholders(matchIds);
+  const [rawRows] = await conn.query(
+    `SELECT match_id, slot, log_index, x, y
+     FROM ${ANALYSIS_SCHEMA}.${table}
+     WHERE match_id IN (${placeholders})
+       AND time BETWEEN ? AND ?
+       AND MOD(time, 10) = 0`,
+    [...matchIds, startTime, endTime]
+  );
+  const deduped = new Map<string, CoordinateSample>();
+  for (const raw of rawRows as Array<Record<string, unknown>>) {
+    const matchId = String(raw.match_id ?? "").trim();
+    const slot = Number(raw.slot);
+    const logIndex = Number(raw.log_index);
+    const x = Number(raw.x);
+    const y = Number(raw.y);
+    if (
+      !matchId ||
+      !Number.isInteger(slot) ||
+      !Number.isFinite(logIndex) ||
+      !Number.isFinite(x) ||
+      !Number.isFinite(y)
+    ) {
+      continue;
+    }
+    deduped.set(`${matchId}\u0000${logIndex}`, {
+      match_id: matchId,
+      slot,
+      log_index: logIndex,
+      x,
+      y,
+    });
+  }
+  return [...deduped.values()];
+}
+
+// 拉取某联赛的逐场选手明细。DWD 缺失时依次使用 OpenDota、STRATZ、两类原始坐标。
 export async function fetchLeaguePlayerRows(
   leagueId: string
 ): Promise<LeaguePlayerRow[]> {
@@ -245,38 +426,179 @@ export async function fetchLeaguePlayerRows(
       hits_5m: r.hits_5m == null ? null : Number(r.hits_5m),
       lane_role: r.lane_role == null ? null : Number(r.lane_role),
       slot: null,
+      lane_source: "dwd" as const,
     }));
     if (positionRows.length > 0) return positionRows;
 
-    // 兜底：无 dwd_match_player_positions 时，用 players + player_intervals2 重建。
-    const [analysisRows] = await conn.query(
-      `WITH ${MATCH_INFO_DEDUP_CTE}
-       SELECT
-         COALESCE(
-           NULLIF(CASE WHEN p.team = 2 THEN mi.radiant_team_tag WHEN p.team = 3 THEN mi.dire_team_tag END, ''),
-           CASE WHEN p.team = 2 THEN CONCAT('Team ', mi.radiant_team_id) WHEN p.team = 3 THEN CONCAT('Team ', mi.dire_team_id) END
-         ) AS team_name,
-         CAST(p.steamid AS CHAR) AS steamid,
-         COALESCE(NULLIF(pp.name, ''), NULLIF(p.persona, ''), CAST(p.steamid AS CHAR)) AS name,
-         p.slot,
-         CAST(pi.lh AS SIGNED) AS hits_5m
-       FROM match_info_dedup mi
-       JOIN ${ANALYSIS_SCHEMA}.players p ON CAST(p.match_id AS BIGINT) = CAST(mi.match_id AS BIGINT)
-       LEFT JOIN ${ANALYSIS_SCHEMA}.pro_players pp ON CAST(pp.steamid AS BIGINT) = p.steamid
-       LEFT JOIN ${ANALYSIS_SCHEMA}.player_intervals2 pi
-         ON pi.match_id = p.match_id AND pi.slot = p.slot AND pi.time = 600
-       WHERE mi.league_id = ?
-         AND p.steamid IS NOT NULL`,
+    const [matchRowsRaw] = await conn.query(
+      `SELECT match_id, radiant_team_id, radiant_team_tag, dire_team_id, dire_team_tag
+       FROM ${ANALYSIS_SCHEMA}.match_info
+       WHERE league_id = ?`,
       [leagueId]
     );
-    return (analysisRows as Array<Record<string, unknown>>).map((r) => ({
-      team_name: r.team_name == null ? null : String(r.team_name),
-      steamid: r.steamid == null ? null : String(r.steamid),
-      name: r.name == null ? null : String(r.name),
-      hits_5m: r.hits_5m == null ? null : Number(r.hits_5m),
-      lane_role: null,
-      slot: r.slot == null ? null : Number(r.slot),
-    }));
+    const matches = new Map<string, MatchSideRow>();
+    for (const raw of matchRowsRaw as Array<Record<string, unknown>>) {
+      const matchId = String(raw.match_id ?? "").trim();
+      if (!matchId) continue;
+      matches.set(matchId, {
+        match_id: matchId,
+        radiant_team_id: String(raw.radiant_team_id ?? "").trim(),
+        radiant_team_tag: String(raw.radiant_team_tag ?? "").trim(),
+        dire_team_id: String(raw.dire_team_id ?? "").trim(),
+        dire_team_tag: String(raw.dire_team_tag ?? "").trim(),
+      });
+    }
+    const matchIds = [...matches.keys()];
+    if (matchIds.length === 0) return [];
+    const placeholders = finitePlaceholders(matchIds);
+
+    const [playerRowsRaw] = await conn.query(
+      `SELECT match_id, slot, steamid, persona, team
+       FROM ${ANALYSIS_SCHEMA}.players
+       WHERE match_id IN (${placeholders})`,
+      matchIds
+    );
+    const playersBySlot = new Map<string, Record<string, unknown>>();
+    for (const raw of playerRowsRaw as Array<Record<string, unknown>>) {
+      const matchId = String(raw.match_id ?? "").trim();
+      const slot = Number(raw.slot);
+      if (matchId && Number.isInteger(slot)) playersBySlot.set(`${matchId}\u0000${slot}`, raw);
+    }
+
+    const steamids = [
+      ...new Set(
+        [...playersBySlot.values()]
+          .map((row) => String(row.steamid ?? "").trim())
+          .filter(Boolean)
+      ),
+    ];
+    const proNames = new Map<string, string>();
+    if (steamids.length > 0) {
+      const [proRowsRaw] = await conn.query(
+        `SELECT steamid, name
+         FROM ${ANALYSIS_SCHEMA}.pro_players
+         WHERE steamid IN (${steamids.map(() => "?").join(",")})`,
+        steamids
+      );
+      for (const raw of proRowsRaw as Array<Record<string, unknown>>) {
+        const steamid = String(raw.steamid ?? "").trim();
+        const name = String(raw.name ?? "").trim();
+        if (steamid && name && !proNames.has(steamid)) proNames.set(steamid, name);
+      }
+    }
+
+    const [hitRowsRaw] = await conn.query(
+      `SELECT match_id, time, slot, log_index, lh
+       FROM ${ANALYSIS_SCHEMA}.player_intervals2
+       WHERE match_id IN (${placeholders})
+         AND time BETWEEN 240 AND 360`,
+      matchIds
+    );
+    const hitRows = new Map<string, Record<string, unknown>>();
+    for (const raw of hitRowsRaw as Array<Record<string, unknown>>) {
+      const matchId = String(raw.match_id ?? "").trim();
+      const logIndex = Number(raw.log_index);
+      if (matchId && Number.isFinite(logIndex)) {
+        hitRows.set(`${matchId}\u0000${logIndex}`, raw);
+      }
+    }
+    const hitsAtFive = new Map<string, { distance: number; value: number }>();
+    for (const raw of hitRows.values()) {
+      const matchId = String(raw.match_id ?? "").trim();
+      const slot = Number(raw.slot);
+      const time = Number(raw.time);
+      const value = Number(raw.lh);
+      if (!matchId || !Number.isInteger(slot) || !Number.isFinite(time) || !Number.isFinite(value)) {
+        continue;
+      }
+      const key = `${matchId}\u0000${slot}`;
+      const distance = Math.abs(time - 300);
+      const current = hitsAtFive.get(key);
+      if (!current || distance < current.distance) hitsAtFive.set(key, { distance, value });
+    }
+
+    const baseRows: BasePlayerRow[] = [];
+    for (const raw of playersBySlot.values()) {
+      const matchId = String(raw.match_id ?? "").trim();
+      const match = matches.get(matchId);
+      const steamid = String(raw.steamid ?? "").trim();
+      const slot = Number(raw.slot);
+      const team = Number(raw.team);
+      if (!match || !steamid || !Number.isInteger(slot) || (team !== 2 && team !== 3)) continue;
+      baseRows.push({
+        match_id: matchId,
+        team,
+        team_name: mapTeamName(match, team),
+        steamid,
+        name: proNames.get(steamid) || String(raw.persona ?? "").trim() || steamid,
+        hits_5m: hitsAtFive.get(`${matchId}\u0000${slot}`)?.value ?? null,
+        lane_role: null,
+        slot,
+        lane_source: null,
+      });
+    }
+
+    const lanes = new Map<
+      string,
+      { role: LaneRole; source: LeaguePlayerRow["lane_source"] }
+    >();
+    mergeLaneRoles(lanes, await fetchOpenDotaLaneRoles(matchIds), "opendota");
+
+    let missingMatchIds = matchesMissingLanes(baseRows, lanes);
+    if (missingMatchIds.length > 0) {
+      mergeLaneRoles(lanes, await fetchStratzLaneRoles(missingMatchIds), "stratz");
+    }
+
+    missingMatchIds = matchesMissingLanes(baseRows, lanes);
+    if (missingMatchIds.length > 0) {
+      const intervalSamples = await fetchCoordinateSamples(
+        conn,
+        "player_intervals2",
+        missingMatchIds,
+        60,
+        300
+      );
+      mergeLaneRoles(
+        lanes,
+        coordinateRoles(
+          intervalSamples,
+          baseRows.filter((row) => missingMatchIds.includes(row.match_id))
+        ),
+        "intervals"
+      );
+    }
+
+    missingMatchIds = matchesMissingLanes(baseRows, lanes);
+    if (missingMatchIds.length > 0) {
+      const heroSamples = await fetchCoordinateSamples(
+        conn,
+        "hero_status_update",
+        missingMatchIds,
+        60,
+        300
+      );
+      mergeLaneRoles(
+        lanes,
+        coordinateRoles(
+          heroSamples,
+          baseRows.filter((row) => missingMatchIds.includes(row.match_id))
+        ),
+        "hero_status"
+      );
+    }
+
+    return baseRows.map((row) => {
+      const lane = row.steamid ? lanes.get(`${row.match_id}\u0000${row.steamid}`) : null;
+      return {
+        team_name: row.team_name,
+        steamid: row.steamid,
+        name: row.name,
+        hits_5m: row.hits_5m,
+        lane_role: lane?.role ?? null,
+        slot: row.slot,
+        lane_source: lane?.source ?? null,
+      };
+    });
   });
 }
 

@@ -568,8 +568,9 @@ export interface RawTeamRow {
 
 export interface MissingPositionTeam {
   team_name: string;
-  // 缺少补刀数据、无法判位的选手（昵称或 steamid）
-  players_without_hits: string[];
+  reason: "missing_hits" | "missing_lane" | "irregular_lane_shape";
+  players_without_hits?: string[];
+  players_without_lane?: string[];
 }
 
 export interface LeagueImportResult {
@@ -579,7 +580,7 @@ export interface LeagueImportResult {
   teams_imported: number;
   empty_teams_imported?: number;
   skipped_incomplete_teams: number;
-  // 有完整 5 人但缺少补刀数据、无法计算分路的队伍（不编造位置，明确列出缺什么）
+  // 有完整 5 人但分路/补刀证据不足的队伍（不编造位置，明确列出原因）
   missing_position_teams?: MissingPositionTeam[];
   deduped_teams?: number;
 }
@@ -750,13 +751,12 @@ function syntheticTeamId(leagueId: string, teamName: string): string {
   return BigInt(`0x${digest}`).toString();
 }
 
-// 重建阵容：每队取出场最多的 5 人，用「局内分路 lane_role + 5 分钟补刀」精确判位：
+// 重建阵容：每队取出场最多的 5 人，用「局内分路 lane_role + 5 分钟补刀」判位：
 //   中路(lane_role=2) → 2 号位；
 //   优势路(lane_role=1) 两人：补刀多 = 1 号位，补刀少 = 5 号位；
 //   劣势路(lane_role=3) 两人：补刀多 = 3 号位，补刀少 = 4 号位。
-// 分路取该选手在本届联赛的众数 lane_role。若分路数据不规整（非 2优势/1中/2劣势），
-// 退化为“按人均补刀从高到低 = 1→5 号位”。slot 只是单场槽位、与分路无关，不参与计算。
-// 若某队有 5 人但完全没有补刀数据，则不编造位置，列入 missingPositionTeams。
+// 分路取该选手在本届联赛的众数 lane_role。分路缺失或不符合 2优势/1中/2劣势时，
+// 不再按补刀强行排序，整队标记“分路数据未就绪”。slot 不参与位置计算。
 function buildLineups(
   rows: RawPlayerRow[],
   leagueId: string
@@ -856,12 +856,24 @@ function buildLineups(
     if (withoutHits.length > 0) {
       missingPositionTeams.push({
         team_name: teamName,
+        reason: "missing_hits",
         players_without_hits: withoutHits.map((p) => p.nickname),
       });
       continue;
     }
 
     const assigned = assignPositions(top5);
+    if (!assigned) {
+      const withoutLane = top5.filter(
+        (p) => p.laneRole == null || ![1, 2, 3].includes(p.laneRole)
+      );
+      missingPositionTeams.push({
+        team_name: teamName,
+        reason: withoutLane.length > 0 ? "missing_lane" : "irregular_lane_shape",
+        players_without_lane: withoutLane.map((p) => p.nickname),
+      });
+      continue;
+    }
     teams.push({
       team_name: teamName,
       team_tag: teamTagFromName(teamName),
@@ -874,8 +886,8 @@ function buildLineups(
   return { teams, skippedIncomplete, missingPositionTeams };
 }
 
-// 用局内分路 + 5 分钟补刀给 5 名选手分配 1~5 号位。
-function assignPositions(top5: BuiltPlayer[]): Record<number, BuiltPlayer> {
+// 用局内分路 + 5 分钟补刀给 5 名选手分配 1~5 号位；证据不足返回 null。
+function assignPositions(top5: BuiltPlayer[]): Record<number, BuiltPlayer> | null {
   const advLane = top5.filter((p) => p.laneRole === 1);
   const mid = top5.filter((p) => p.laneRole === 2);
   const hardLane = top5.filter((p) => p.laneRole === 3);
@@ -893,13 +905,7 @@ function assignPositions(top5: BuiltPlayer[]): Record<number, BuiltPlayer> {
     };
   }
 
-  // 分路数据不规整（游走/打野/缺失等）时退化为纯补刀排序：补刀多→1，少→5。
-  const ranked = top5.slice().sort((a, b) => b.avgHits - a.avgHits);
-  const assigned: Record<number, BuiltPlayer> = {};
-  [1, 2, 3, 4, 5].forEach((pos, idx) => {
-    assigned[pos] = ranked[idx];
-  });
-  return assigned;
+  return null;
 }
 
 // 将重建出的联赛阵容合并进本地库（按 league_id 去重，按 战队名 去重并整队替换选手）
@@ -948,7 +954,7 @@ export function importLeagueFromRawRows(
 
   const builtTeamNames = new Set(builtTeams.map((bt) => normalizeTeamName(bt.team_name)));
 
-  // 缺少补刀数据、无法判位的队伍：建成“缺失”状态占位，不写入编造的位置。
+  // 分路或补刀证据不足的队伍：建成“缺失”状态占位，不写入编造的位置。
   for (const mt of missingPositionTeams) {
     const teamName = normalizeTeamName(mt.team_name);
     if (!teamName) continue;

@@ -186,19 +186,31 @@ export default function LeaguesPage() {
       } else {
         toast.success(`成功导入 ${leaguesCount} 个联赛 / ${teams} 支战队`);
       }
-      // 汇总缺少补刀数据、无法计算分路的队伍，明确提示缺什么
+      // 汇总分路或补刀证据不足的队伍，明确提示缺什么
       const missingTeams = (data.results ?? []).flatMap(
         (r: {
           league_name?: string;
-          missing_position_teams?: { team_name: string; players_without_hits: string[] }[];
+          missing_position_teams?: {
+            team_name: string;
+            reason: "missing_hits" | "missing_lane" | "irregular_lane_shape";
+            players_without_hits?: string[];
+            players_without_lane?: string[];
+          }[];
         }) =>
-          (r.missing_position_teams ?? []).map(
-            (m) => `${m.team_name}（缺 ${m.players_without_hits.join("、")} 的补刀数据）`
-          )
+          (r.missing_position_teams ?? []).map((m) => {
+            if (m.reason === "missing_hits") {
+              return `${m.team_name}（缺 ${(m.players_without_hits ?? []).join("、")} 的5分钟补刀数据）`;
+            }
+            if (m.reason === "missing_lane") {
+              const names = (m.players_without_lane ?? []).join("、");
+              return `${m.team_name}（${names ? `${names} 的` : ""}分路数据未就绪）`;
+            }
+            return `${m.team_name}（分路阵型不完整）`;
+          })
       );
       if (missingTeams.length > 0) {
         toast.warning(
-          `${missingTeams.length} 支战队缺少补刀数据、无法计算分路，已标记为「缺失」：` +
+          `${missingTeams.length} 支战队证据不足、未强行按补刀排位，已标记为「缺失」：` +
             missingTeams.slice(0, 5).join("；") +
             (missingTeams.length > 5 ? " 等" : ""),
           { duration: 10000 }
