@@ -181,7 +181,7 @@ export function listAllPositions() {
       .map((team) => {
         const players = (playersByTeam.get(team.id) ?? [])
           .slice()
-          .sort((a, b) => a.position - b.position)
+          .sort((a, b) => (a.position || 99) - (b.position || 99))
           .map((p) => ({
             position: p.position,
             nickname: p.nickname,
@@ -280,9 +280,11 @@ export function listTeamsByTournamentId(tournamentId: number) {
     .map((team) => {
       const players = db.players
         .filter((p) => p.team_id === team.id)
-        .sort((a, b) => a.position - b.position);
+        .sort((a, b) => (a.position || 99) - (b.position || 99));
       const status = computeTeamStatus(players);
-      const summary = players.map((p) => `${p.nickname}(${p.position}号位)`).join("、");
+      const summary = players
+        .map((p) => `${p.nickname}(${p.position === 0 ? "位置待定" : `${p.position}号位`})`)
+        .join("、");
       return { ...team, status, summary, players };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -341,7 +343,7 @@ export function deleteTeamById(id: number) {
 export function listPlayersByTeamId(teamId: number) {
   return loadData().players
     .filter((p) => p.team_id === teamId)
-    .sort((a, b) => a.position - b.position);
+    .sort((a, b) => (a.position || 99) - (b.position || 99));
 }
 
 export function addPlayerToTeam(
@@ -435,7 +437,7 @@ export function exportRowsWithTier(
     for (const team of teams) {
       const players = db.players
         .filter((p) => p.team_id === team.id)
-        .sort((a, b) => a.position - b.position);
+        .sort((a, b) => (a.position || 99) - (b.position || 99));
       if (players.length === 0) {
         rows.push({ tournament, team, player: null });
       } else {
@@ -571,6 +573,11 @@ export interface MissingPositionTeam {
   reason: "missing_hits" | "missing_lane" | "irregular_lane_shape";
   players_without_hits?: string[];
   players_without_lane?: string[];
+  // 五人身份已经确认但无法判定位置时仍保留选手，position=0 表示位置待定。
+  unpositioned_players: Array<{
+    nickname: string;
+    steamid64: string;
+  }>;
 }
 
 export interface LeagueImportResult {
@@ -858,6 +865,10 @@ function buildLineups(
         team_name: teamName,
         reason: "missing_hits",
         players_without_hits: withoutHits.map((p) => p.nickname),
+        unpositioned_players: top5.map((p) => ({
+          nickname: p.nickname,
+          steamid64: p.steamid,
+        })),
       });
       continue;
     }
@@ -871,6 +882,10 @@ function buildLineups(
         team_name: teamName,
         reason: withoutLane.length > 0 ? "missing_lane" : "irregular_lane_shape",
         players_without_lane: withoutLane.map((p) => p.nickname),
+        unpositioned_players: top5.map((p) => ({
+          nickname: p.nickname,
+          steamid64: p.steamid,
+        })),
       });
       continue;
     }
@@ -954,7 +969,7 @@ export function importLeagueFromRawRows(
 
   const builtTeamNames = new Set(builtTeams.map((bt) => normalizeTeamName(bt.team_name)));
 
-  // 分路或补刀证据不足的队伍：建成“缺失”状态占位，不写入编造的位置。
+  // 五人身份已确认但分路/补刀证据不足：保留选手，position=0 表示位置待定。
   for (const mt of missingPositionTeams) {
     const teamName = normalizeTeamName(mt.team_name);
     if (!teamName) continue;
@@ -979,8 +994,19 @@ export function importLeagueFromRawRows(
       team.status = "缺失";
       team.updated_at = now;
     }
-    // 清掉旧的（可能是之前 slot 编造出来的）位置，避免残留错误数据。
+    // 清掉旧位置后写回已确认的五名选手，但不编造 1~5 号位。
     db.players = db.players.filter((p) => p.team_id !== team!.id);
+    for (const player of mt.unpositioned_players) {
+      db.players.push({
+        id: nextId(db.players.map((x) => x.id)),
+        team_id: team.id,
+        nickname: player.nickname,
+        steamid64: player.steamid64,
+        position: 0,
+        created_at: now,
+        updated_at: now,
+      });
+    }
   }
 
   for (const bt of builtTeams) {
@@ -1070,6 +1096,9 @@ function updateTeamStatus(db: LocalStoreData, teamId: number) {
 
 function computeTeamStatus(players: PlayerRecord[]) {
   const positions = players.map((p) => p.position);
+  if (positions.some((position) => ![1, 2, 3, 4, 5].includes(position))) {
+    return "缺失";
+  }
   const unique = new Set(positions);
   if (players.length === 5 && unique.size === 5) return "完整";
   if (unique.size < players.length) return "重复";

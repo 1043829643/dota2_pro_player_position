@@ -129,7 +129,10 @@ export default function PlayersPage() {
       setNicknameDraft(profileData.nickname);
       setPositionDraft(
         Object.fromEntries(
-          profileData.appearances.map((a) => [a.player_id, String(a.position)])
+          profileData.appearances.map((a) => [
+            a.player_id,
+            [1, 2, 3, 4, 5].includes(a.position) ? String(a.position) : "",
+          ])
         )
       );
     } catch (e) {
@@ -359,7 +362,9 @@ export default function PlayersPage() {
                               </div>
                             </div>
                             <div className="flex items-center gap-2">
-                              <Badge variant="outline">当前 {a.position} 号位</Badge>
+                              <Badge variant="outline">
+                                当前 {a.position === 0 ? "位置待定" : `${a.position} 号位`}
+                              </Badge>
                               <Select
                                 value={positionDraft[a.player_id] ?? String(a.position)}
                                 onValueChange={(v) =>
@@ -429,7 +434,8 @@ export default function PlayersPage() {
                             <div className="font-semibold text-slate-800">{card.nickname}</div>
                             <div className="text-xs text-slate-500">{card.steamid64}</div>
                             <div className="text-xs text-slate-500">
-                              {card.team_name} · {card.position}号位
+                              {card.team_name} ·{" "}
+                              {card.position === 0 ? "位置待定" : `${card.position}号位`}
                             </div>
                           </CardContent>
                         </Card>

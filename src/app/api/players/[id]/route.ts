@@ -59,9 +59,9 @@ function validatePlayerPayload(body: Record<string, unknown>): string | null {
 
   if (
     body.position !== undefined &&
-    (![1, 2, 3, 4, 5].includes(Number(body.position)))
+    ![0, 1, 2, 3, 4, 5].includes(Number(body.position))
   ) {
-    return "位置必须是 1~5 号位";
+    return "位置必须是待定或 1~5 号位";
   }
 
   return null;

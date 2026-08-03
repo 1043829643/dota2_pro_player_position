@@ -330,7 +330,9 @@ export default function TournamentPage() {
                         {team.players.map((p) => (
                           <div key={p.id} className="flex items-center justify-between text-sm">
                             <span className="text-slate-700">{p.nickname}</span>
-                            <span className="text-xs text-slate-400">{p.position}号位</span>
+                            <span className="text-xs text-slate-400">
+                              {p.position === 0 ? "位置待定" : `${p.position}号位`}
+                            </span>
                           </div>
                         ))}
                       </div>

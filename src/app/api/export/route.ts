@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
         [
           escapeCsv(row.tournament.league_id),
           row.player.steamid64,
-          String(row.player.position),
+          row.player.position === 0 ? "" : String(row.player.position),
         ].join(",")
       );
       continue;
@@ -46,7 +46,11 @@ export async function GET(req: NextRequest) {
         escapeCsv(row.team.name),
         escapeCsv(row.team.team_id ?? ""),
         escapeCsv(row.player?.nickname ?? ""),
-        row.player ? `${row.player.position}号位` : "",
+        row.player
+          ? row.player.position === 0
+            ? "位置待定"
+            : `${row.player.position}号位`
+          : "",
         row.player?.steamid64 ?? "",
         stratzLink,
       ].join(",")

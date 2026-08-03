@@ -63,6 +63,7 @@ interface TournamentTeamSummary {
 const POSITIONS = [1, 2, 3, 4, 5];
 const STEAMID64_BASE = BigInt("76561197960265728");
 const POSITION_LABELS: Record<number, string> = {
+  0: "位置待定",
   1: "1号位 (Carry)",
   2: "2号位 (Mid)",
   3: "3号位 (Offlane)",
@@ -115,7 +116,9 @@ export default function TeamPage() {
   }, [fetchData]);
 
   // 获取已占用的位置
-  const usedPositions = players.map((p) => p.position);
+  const usedPositions = players
+    .map((p) => p.position)
+    .filter((position) => POSITIONS.includes(position));
 
   // 校验函数
   const validatePlayer = (
@@ -154,7 +157,7 @@ export default function TeamPage() {
     setEditingPlayer(player);
     setEditNickname(player.nickname);
     setEditSteamid64(player.steamid64 ?? "");
-    setEditPosition(String(player.position));
+    setEditPosition(POSITIONS.includes(player.position) ? String(player.position) : "");
     setEditOpen(true);
   };
 
@@ -289,13 +292,16 @@ export default function TeamPage() {
     // 2. 检查 steamid64 格式
     for (const p of players) {
       if (p.steamid64 && !/^\d{17}$/.test(p.steamid64)) {
-        errors.push(`${p.nickname}(${p.position}号位) steamid64 格式错误`);
+        const positionLabel = POSITIONS.includes(p.position)
+          ? `${p.position}号位`
+          : "位置待定";
+        errors.push(`${p.nickname}(${positionLabel}) steamid64 格式错误`);
       }
     }
 
     // 3. 检查位置重复
     const posCount = new Map<number, number>();
-    positions.forEach((pos) => {
+    positions.filter((pos) => POSITIONS.includes(pos)).forEach((pos) => {
       posCount.set(pos, (posCount.get(pos) || 0) + 1);
     });
     for (const [pos, count] of posCount) {
@@ -321,12 +327,16 @@ export default function TeamPage() {
     }
 
     // 更新战队状态
-    const allFilled = positions.length === 5 && new Set(positions).size === 5;
-    const hasDuplicates = new Set(positions).size < positions.length;
+    const validPositions = positions.filter((pos) => POSITIONS.includes(pos));
+    const allFilled =
+      players.length === 5 &&
+      validPositions.length === 5 &&
+      new Set(validPositions).size === 5;
+    const hasDuplicates = new Set(validPositions).size < validPositions.length;
     let status = "缺失";
     if (allFilled) status = "完整";
     else if (hasDuplicates) status = "重复";
-    else if (positions.length > 0) status = "待确认";
+    else if (validPositions.length > 0) status = "待确认";
 
     try {
       await fetch(apiPath(`/api/teams/${teamId}`), {
@@ -464,7 +474,7 @@ export default function TeamPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {players
-              .sort((a, b) => a.position - b.position)
+              .sort((a, b) => (a.position || 99) - (b.position || 99))
               .map((player) => {
                 const stratzLink = getStratzLink(player.steamid64);
                 return (
@@ -478,7 +488,7 @@ export default function TeamPage() {
                           <div
                             className={`w-10 h-10 rounded-lg bg-gradient-to-br ${getPositionColor(player.position)} flex items-center justify-center text-white font-bold text-sm shadow-sm`}
                           >
-                            {player.position}
+                            {POSITIONS.includes(player.position) ? player.position : "?"}
                           </div>
                           <div>
                             <CardTitle className="text-base text-slate-800">
